@@ -1,52 +1,45 @@
-import modelText from './assets/primitives/mesh_cube.txt?raw';
-import { cameraLightDir, createCamera, installOrbitControls, viewProjection } from './lib/camera';
-import { compose, type Vec3 } from './lib/math';
-import { buildModelMeshes, modelBounds } from './lib/mesh';
-import { buildTexture, parsePicoCad2 } from './lib/picocad2';
-import { Renderer } from './lib/renderer';
+import { Game } from './game';
+import { cameraLightDir, viewProjection } from './lib/camera';
+import { buildModel } from './lib/model';
+import { type ModelHandle, Renderer } from './lib/renderer';
 
-// --- Load the model -------------------------------------------------------
-const data = parsePicoCad2(modelText);
-const meshes = buildModelMeshes(data);
-const texture = buildTexture(data);
-
-// --- Set up canvas + renderer + camera ------------------------------------
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const renderer = new Renderer(canvas);
-renderer.loadModel(meshes, texture);
 
-// Frame the camera to whatever model was loaded, so swapping model.txt just works.
-const bounds = modelBounds(meshes);
-const camera = createCamera({ target: bounds.center });
-camera.distance = (bounds.radius / Math.sin(camera.fovYRadians / 2)) * 1.1;
-installOrbitControls(canvas, camera);
+// Load every primitive and upload it once; key handles by file name (mesh_cube, ...).
+const primitiveTexts = import.meta.glob('./assets/primitives/*.txt', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+}) as Record<string, string>;
 
-// --- The model: mutate these from your own code ---------------------------
-// position/scale in world units, rotation in radians (XYZ Euler).
-const model = {
-    position: { x: 0, y: 0, z: 0 } as Vec3,
-    rotation: { x: 0, y: 0, z: 0 } as Vec3,
-    scale: { x: 1, y: 1, z: 1 } as Vec3,
-};
-
-// Example: slowly spin the model. Delete or replace with your own logic.
-function update(dt: number): void {
-    model.rotation.y += dt * 0.6;
+const handles: Record<string, ModelHandle> = {};
+for (const [path, text] of Object.entries(primitiveTexts)) {
+    const name = path.split('/').pop()!.replace('.txt', '');
+    const model = buildModel(text);
+    handles[name] = renderer.upload(model.meshes, model.texture);
 }
 
-// --- Render loop ----------------------------------------------------------
+// --- Input: a set of currently-held keys -----------------------------------
+const keys = new Set<string>();
+window.addEventListener('keydown', (e) => {
+    keys.add(e.key.toLowerCase());
+    if (e.key.startsWith('Arrow')) e.preventDefault();
+});
+window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+// --- Game + render loop ----------------------------------------------------
+const game = new Game(handles);
+
 let last = performance.now();
 function frame(now: number): void {
-    const dt = (now - last) / 1000;
+    const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
-    update(dt);
-
-    const modelMatrix = compose(model.position, model.rotation, model.scale);
-    renderer.render(viewProjection(camera, renderer.aspect), cameraLightDir(camera), modelMatrix);
+    game.update(dt, keys);
+    renderer.render(viewProjection(game.camera, renderer.aspect), cameraLightDir(game.camera), game.instances());
     requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-// Expose for tinkering in the devtools console.
-Object.assign(window as unknown as Record<string, unknown>, { model, camera });
+Object.assign(window as unknown as Record<string, unknown>, { game });

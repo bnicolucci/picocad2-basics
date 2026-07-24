@@ -91,11 +91,25 @@ const RETRO_SCALE = 0.5;
 
 type DrawMesh = { vao: WebGLVertexArrayObject; count: number; localMatrix: Mat4 };
 
+// An uploaded model: its per-node draw calls plus its own textures.
+type UploadedModel = {
+    meshes: DrawMesh[];
+    indexTexture: WebGLTexture;
+    paletteTexture: WebGLTexture;
+    transparentIndex: number;
+};
+
+// One thing to draw this frame: which uploaded model, and where.
+export type Instance = { model: ModelHandle; matrix: Mat4 };
+
+// Opaque index into the renderer's uploaded-model list.
+export type ModelHandle = number;
+
 export class Renderer {
     private gl: WebGL2RenderingContext;
     private program: WebGLProgram;
     private u: Record<string, WebGLUniformLocation | null> = {};
-    private meshes: DrawMesh[] = [];
+    private models: UploadedModel[] = [];
     canvas: HTMLCanvasElement;
 
     constructor(canvas: HTMLCanvasElement) {
@@ -121,8 +135,11 @@ export class Renderer {
         gl.enable(gl.DEPTH_TEST);
     }
 
-    loadModel(meshes: GpuMesh[], texture: BuiltTexture): void {
+    // Upload a model's geometry + textures once; returns a handle to draw it
+    // any number of times via render() instances.
+    upload(meshes: GpuMesh[], texture: BuiltTexture): ModelHandle {
         const gl = this.gl;
+        const drawMeshes: DrawMesh[] = [];
 
         for (const mesh of meshes) {
             if (mesh.indices.length === 0) continue;
@@ -149,18 +166,18 @@ export class Renderer {
             gl.enableVertexAttribArray(4);
             gl.vertexAttribPointer(4, 1, gl.FLOAT, false, stride, 9 * 4);
 
-            this.meshes.push({ vao, count: mesh.indices.length, localMatrix: mesh.localMatrix });
+            drawMeshes.push({ vao, count: mesh.indices.length, localMatrix: mesh.localMatrix });
         }
 
         gl.bindVertexArray(null);
-        this.indexTexture = this.makeIndexTexture(texture);
-        this.paletteTexture = this.makePaletteTexture(texture);
-        this.transparentIndex = texture.transparentIndex;
+        this.models.push({
+            meshes: drawMeshes,
+            indexTexture: this.makeIndexTexture(texture),
+            paletteTexture: this.makePaletteTexture(texture),
+            transparentIndex: texture.transparentIndex,
+        });
+        return this.models.length - 1;
     }
-
-    private indexTexture: WebGLTexture | null = null;
-    private paletteTexture: WebGLTexture | null = null;
-    private transparentIndex = -1;
 
     private makeIndexTexture(texture: BuiltTexture): WebGLTexture {
         const gl = this.gl;
@@ -186,7 +203,7 @@ export class Renderer {
         return tex;
     }
 
-    render(viewProj: Mat4, lightDir: [number, number, number], modelMatrix: Mat4): void {
+    render(viewProj: Mat4, lightDir: [number, number, number], instances: Instance[]): void {
         const gl = this.gl;
         // Render at a fraction of display resolution and let CSS upscale it
         // (image-rendering: pixelated) for the chunky retro look.
@@ -206,19 +223,26 @@ export class Renderer {
         gl.uniformMatrix4fv(this.u.u_viewProj, false, viewProj);
         gl.uniform3f(this.u.u_lightDir, lightDir[0], lightDir[1], lightDir[2]);
         gl.uniform1f(this.u.u_ambient, 0.15);
-        gl.uniform1f(this.u.u_transparentIndex, this.transparentIndex);
 
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this.indexTexture);
-        gl.uniform1i(this.u.u_indexTexture, 0);
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
-        gl.uniform1i(this.u.u_paletteTexture, 1);
-
-        for (const mesh of this.meshes) {
-            gl.uniformMatrix4fv(this.u.u_model, false, multiply(modelMatrix, mesh.localMatrix));
-            gl.bindVertexArray(mesh.vao);
-            gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+        let boundModel = -1;
+        for (const inst of instances) {
+            const model = this.models[inst.model];
+            if (!model) continue;
+            if (inst.model !== boundModel) {
+                gl.uniform1f(this.u.u_transparentIndex, model.transparentIndex);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, model.indexTexture);
+                gl.uniform1i(this.u.u_indexTexture, 0);
+                gl.activeTexture(gl.TEXTURE1);
+                gl.bindTexture(gl.TEXTURE_2D, model.paletteTexture);
+                gl.uniform1i(this.u.u_paletteTexture, 1);
+                boundModel = inst.model;
+            }
+            for (const mesh of model.meshes) {
+                gl.uniformMatrix4fv(this.u.u_model, false, multiply(inst.matrix, mesh.localMatrix));
+                gl.bindVertexArray(mesh.vao);
+                gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+            }
         }
         gl.bindVertexArray(null);
     }
