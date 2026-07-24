@@ -43,7 +43,7 @@ export function updatePlayer(p: Player, w: World, dt: number, input: Input): voi
     p.attackTimer = Math.max(0, p.attackTimer - dt);
     p.attackCooldown = Math.max(0, p.attackCooldown - dt);
 
-    if ((input.has(' ') || input.has('j')) && p.attackCooldown <= 0) {
+    if ((input.has('z') || input.has('x')) && p.attackCooldown <= 0) {
         p.attackTimer = ATTACK_DURATION;
         p.attackCooldown = ATTACK_COOLDOWN;
         p.swingId++;

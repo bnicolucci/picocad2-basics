@@ -86,7 +86,8 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   re-points to a different 16px atlas tile. The renderer normalizes within each
   model's own UV bounds (computed at upload) before repeating, so it works on
   primitives whose UVs already sit in a specific atlas tile.
-- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Space/J** starts a swing
+- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Z/X** (PICO-8 action
+  buttons) starts a swing
   that stays active ~0.16s (`attackTimer`) and damages each enemy in a wide
   forward arc once per swing (`swingId` / `enemy.hitSwing`), killing them (chaser
   hp 2, wander hp 1). A green slash (`slashInstance`, a scaled cube) shows in

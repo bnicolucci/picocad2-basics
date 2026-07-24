@@ -25,7 +25,7 @@ for (const [path, text] of Object.entries(primitiveTexts)) {
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
     keys.add(e.key.toLowerCase());
-    if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault();
+    if (e.key.startsWith('Arrow')) e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
