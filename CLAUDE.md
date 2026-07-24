@@ -28,6 +28,7 @@ src/
     enemy.ts     Enemy: type, createEnemy, updateEnemy, enemyInstance
     map.ts       rooms data, geometry, clampToRoom, doorCrossed, enterRoom
     collide.ts   resolveCollisions: circle-circle push on the XZ plane
+    combat.ts    resolveCombat: attack hits, contact damage, death/respawn
   lib/           reusable engine core (no game logic)
   assets/        picoCAD2 model + primitive .txt files
 ```
@@ -45,6 +46,7 @@ kind owns one file holding its data **and** behavior **and** how it renders
 | `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + render instance. |
 | `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
 | `src/game/collide.ts` | `resolveCollisions(w)`: circle-circle on XZ, run after movement. Props are static (push the mover out); player/enemies split the push; everyone re-clamped to the room. Entities carry a `radius`. |
+| `src/game/combat.ts` | `resolveCombat(w)`: player attack (forward arc) damages/kills enemies; enemy contact damages the player with i-frames + knockback; death respawns at room A. |
 | `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
 | `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
 | `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture, bounds }` ready for `Renderer.upload()`. |
@@ -84,9 +86,15 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   re-points to a different 16px atlas tile. The renderer normalizes within each
   model's own UV bounds (computed at upload) before repeating, so it works on
   primitives whose UVs already sit in a specific atlas tile.
+- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Space/J** attacks in a
+  forward arc (`ATTACK_RANGE`), killing enemies (chaser hp 2, wander hp 1).
+  Enemy contact costs a heart with i-frames (`INVULN`) + knockback; the player
+  blinks while invulnerable. Zero HP respawns at room A. A DOM `#hud` (in
+  `index.html`, updated from `main.ts`) shows hearts + enemy count.
 - **Open seams** (not built yet): per-instance **palette** swap (needs a small
-  palette catalog reintroduced — heavier than UV), player↔enemy interaction
-  (hits/health), and rooms as authored modules.
+  palette catalog reintroduced — heavier than UV); a visible attack swing
+  (currently the hit is invisible — the enemy just vanishes); and rooms as
+  authored modules.
 
 ## Model space
 

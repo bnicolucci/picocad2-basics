@@ -1,7 +1,8 @@
 import type { Instance } from '../lib/renderer';
 import { resolveCollisions } from './collide';
-import { createEnemy, enemyInstance, updateEnemy } from './enemy';
-import { doorCrossed, enterRoom, mapInstances, roomEnemySpawns } from './map';
+import { resolveCombat } from './combat';
+import { enemyInstance, spawnRoomEnemies, updateEnemy } from './enemy';
+import { doorCrossed, enterRoom, mapInstances } from './map';
 import { playerInstance, updatePlayer } from './player';
 import type { Input, World } from './world';
 
@@ -28,12 +29,16 @@ export function update(w: World, dt: number, input: Input): void {
     for (const e of w.enemies) updateEnemy(e, w, dt);
 
     resolveCollisions(w);
+    resolveCombat(w);
 }
 
 export function draw(w: World): Instance[] {
-    return [...mapInstances(w), ...w.enemies.map((e) => enemyInstance(w, e)), playerInstance(w, w.player)];
-}
+    const out: Instance[] = [...mapInstances(w), ...w.enemies.map((e) => enemyInstance(w, e))];
 
-function spawnRoomEnemies(w: World): void {
-    w.enemies = roomEnemySpawns(w).map((s) => createEnemy(s.kind, s.x, s.z));
+    // Blink the player while briefly invulnerable after a hit.
+    const p = w.player;
+    const blinkedOut = p.invuln > 0 && Math.floor(w.time * 12) % 2 === 0;
+    if (!blinkedOut) out.push(playerInstance(w, p));
+
+    return out;
 }

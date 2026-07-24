@@ -1,6 +1,6 @@
 import { compose } from '../lib/math';
 import type { Instance } from '../lib/renderer';
-import { clampToRoom } from './map';
+import { clampToRoom, roomEnemySpawns } from './map';
 import type { World } from './world';
 
 export type EnemyKind = 'chaser' | 'wander';
@@ -13,6 +13,7 @@ export type Enemy = {
     model: string;
     speed: number;
     radius: number;
+    hp: number;
     timer: number; // wander: seconds until next heading change
 };
 
@@ -26,8 +27,15 @@ export function createEnemy(kind: EnemyKind, x: number, z: number): Enemy {
         model: chaser ? 'mesh_sphere' : 'mesh_cylinder',
         speed: chaser ? 4 : 2.5,
         radius: 0.5,
+        hp: chaser ? 2 : 1,
         timer: 0,
     };
+}
+
+// Replace the enemy list with the current room's spawns. Shared by init, door
+// transitions, and respawn-on-death.
+export function spawnRoomEnemies(w: World): void {
+    w.enemies = roomEnemySpawns(w).map((s) => createEnemy(s.kind, s.x, s.z));
 }
 
 export function updateEnemy(e: Enemy, w: World, dt: number): void {

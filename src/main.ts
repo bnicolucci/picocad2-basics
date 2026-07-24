@@ -25,13 +25,20 @@ for (const [path, text] of Object.entries(primitiveTexts)) {
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
     keys.add(e.key.toLowerCase());
-    if (e.key.startsWith('Arrow')) e.preventDefault();
+    if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
 // --- init / update / draw loop ---------------------------------------------
 const world = createWorld(handles);
 init(world);
+
+const hud = document.querySelector<HTMLDivElement>('#hud')!;
+function drawHud(): void {
+    const p = world.player;
+    const hearts = '♥'.repeat(p.hp) + '♡'.repeat(p.maxHp - p.hp);
+    hud.textContent = `${hearts}   enemies ${world.enemies.length}`;
+}
 
 let last = performance.now();
 function frame(now: number): void {
@@ -40,6 +47,7 @@ function frame(now: number): void {
 
     update(world, dt, keys);
     renderer.render(viewProjection(world.camera, renderer.aspect), cameraLightDir(world.camera), draw(world));
+    drawHud();
     requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

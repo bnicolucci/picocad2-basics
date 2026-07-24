@@ -3,6 +3,8 @@ import type { Instance } from '../lib/renderer';
 import { clampToRoom } from './map';
 import type { Input, World } from './world';
 
+const ATTACK_COOLDOWN = 0.4;
+
 export type Player = {
     x: number;
     z: number;
@@ -10,13 +12,39 @@ export type Player = {
     speed: number;
     radius: number;
     model: string;
+    hp: number;
+    maxHp: number;
+    invuln: number; // seconds of damage immunity remaining
+    attackCooldown: number; // seconds until able to attack again
+    attackFired: boolean; // an attack started this frame (combat consumes it)
 };
 
 export function createPlayer(): Player {
-    return { x: 0, z: 0, facing: 0, speed: 7, radius: 0.5, model: 'mesh_capsule' };
+    return {
+        x: 0,
+        z: 0,
+        facing: 0,
+        speed: 7,
+        radius: 0.5,
+        model: 'mesh_capsule',
+        hp: 3,
+        maxHp: 3,
+        invuln: 0,
+        attackCooldown: 0,
+        attackFired: false,
+    };
 }
 
 export function updatePlayer(p: Player, w: World, dt: number, input: Input): void {
+    p.invuln = Math.max(0, p.invuln - dt);
+    p.attackCooldown = Math.max(0, p.attackCooldown - dt);
+
+    p.attackFired = false;
+    if ((input.has(' ') || input.has('j')) && p.attackCooldown <= 0) {
+        p.attackFired = true;
+        p.attackCooldown = ATTACK_COOLDOWN;
+    }
+
     let dx = 0;
     let dz = 0;
     if (input.has('w') || input.has('arrowup')) dz -= 1;
