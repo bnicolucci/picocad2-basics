@@ -16,17 +16,27 @@ Use **bun** / **bunx**. Never npm/npx.
 - Prefer targeted edits over rewrites
 - No premature abstractions
 
-## Files (all of it)
+## Layout
+
+```
+src/
+  main.ts        app entry: loads assets, wires the game loop
+  lib/           reusable engine core (no game logic)
+  assets/        picoCAD2 model + primitive .txt files
+```
+
+Engine core lives in `src/lib/`; `main.ts` and anything game-specific stay above
+it, so the library stays clean as the game grows.
 
 | File | Role |
 |---|---|
-| `src/main.ts` | Entry point. Loads the model, sets up camera + renderer, runs the render loop. The `model` object (position/rotation/scale) is what you mutate to control the model. |
-| `src/model.txt` | The picoCAD2 model being displayed (plain JSON). Swap this file to load a different model. |
-| `src/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
-| `src/mesh.ts` | `buildModelMeshes` walks the model graph and produces flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
-| `src/renderer.ts` | Minimal WebGL2 renderer: one palette-shaded program, uploads meshes/textures, draws. |
-| `src/camera.ts` | Perspective orbit camera + mouse-drag / wheel controls. |
-| `src/math.ts` | Column-major mat4 + quaternion helpers. |
+| `src/main.ts` | Entry point. Loads assets, sets up camera + renderer, runs the loop. |
+| `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
+| `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
+| `src/lib/renderer.ts` | Minimal WebGL2 renderer: one palette-shaded program, uploads meshes/textures, draws. |
+| `src/lib/camera.ts` | Perspective orbit camera, view-space headlight, mouse-drag / wheel controls. |
+| `src/lib/math.ts` | Column-major mat4 + quaternion helpers. |
+| `src/assets/**/*.txt` | picoCAD2 models (`model.txt`) and primitives (`primitives/mesh_*.txt`). |
 
 ## Model space
 

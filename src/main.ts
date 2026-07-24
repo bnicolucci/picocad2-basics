@@ -1,9 +1,9 @@
-import modelText from './model.txt?raw';
-import { cameraLightDir, createCamera, installOrbitControls, viewProjection } from './camera';
-import { compose, type Vec3 } from './math';
-import { buildModelMeshes, modelBounds } from './mesh';
-import { buildTexture, parsePicoCad2 } from './picocad2';
-import { Renderer } from './renderer';
+import modelText from './assets/primitives/mesh_cube.txt?raw';
+import { cameraLightDir, createCamera, installOrbitControls, viewProjection } from './lib/camera';
+import { compose, type Vec3 } from './lib/math';
+import { buildModelMeshes, modelBounds } from './lib/mesh';
+import { buildTexture, parsePicoCad2 } from './lib/picocad2';
+import { Renderer } from './lib/renderer';
 
 // --- Load the model -------------------------------------------------------
 const data = parsePicoCad2(modelText);
