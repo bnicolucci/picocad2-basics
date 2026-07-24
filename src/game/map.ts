@@ -70,11 +70,12 @@ export function doorCrossed(w: World): Dir | null {
 // doorway. Enemy respawn is the caller's job (game.ts owns entity creation).
 export function enterRoom(w: World, exitDir: Dir): void {
     w.roomId = room(w).doors[exitDir]!;
+    // You arrive at the door on the opposite side from the one you exited.
     const inset = 1.2;
     if (exitDir === 'north') (w.player.x = 0), (w.player.z = HZ - inset);
     else if (exitDir === 'south') (w.player.x = 0), (w.player.z = -HZ + inset);
-    else if (exitDir === 'west') (w.player.x = -HX + inset), (w.player.z = 0);
-    else (w.player.x = HX - inset), (w.player.z = 0);
+    else if (exitDir === 'west') (w.player.x = HX - inset), (w.player.z = 0);
+    else (w.player.x = -HX + inset), (w.player.z = 0);
 }
 
 export function mapInstances(w: World): Instance[] {
