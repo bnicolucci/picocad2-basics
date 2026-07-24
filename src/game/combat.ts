@@ -2,8 +2,8 @@ import { spawnRoomEnemies } from './enemy';
 import { clampToRoom } from './map';
 import type { World } from './world';
 
-const ATTACK_RANGE = 2;
-const ATTACK_ARC = 0.3; // min dot(facing, dirToEnemy) to be "in front"
+const ATTACK_RANGE = 1.9;
+const ATTACK_ARC = -0.2; // min dot(facing, dirToEnemy); wide (~110° each side of front)
 const KNOCKBACK = 1.5;
 const INVULN = 1.2;
 
@@ -11,16 +11,18 @@ const INVULN = 1.2;
 export function resolveCombat(w: World): void {
     const p = w.player;
 
-    // Attack: damage enemies in a forward arc; drop any that die.
-    if (p.attackFired) {
+    // Attack: while a swing is active, damage each in-reach enemy once per swing.
+    if (p.attackTimer > 0) {
         const fx = Math.sin(p.facing);
         const fz = Math.cos(p.facing);
         for (const e of w.enemies) {
+            if (e.hitSwing === p.swingId) continue;
             const dx = e.x - p.x;
             const dz = e.z - p.z;
             const dist = Math.hypot(dx, dz);
-            if (dist > 1e-4 && dist <= ATTACK_RANGE && (dx / dist) * fx + (dz / dist) * fz >= ATTACK_ARC) {
+            if (dist <= ATTACK_RANGE && (dist < 1e-4 || (dx / dist) * fx + (dz / dist) * fz >= ATTACK_ARC)) {
                 e.hp -= 1;
+                e.hitSwing = p.swingId;
             }
         }
         w.enemies = w.enemies.filter((e) => e.hp > 0);

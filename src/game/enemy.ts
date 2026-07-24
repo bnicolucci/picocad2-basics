@@ -14,6 +14,7 @@ export type Enemy = {
     speed: number;
     radius: number;
     hp: number;
+    hitSwing: number; // id of the last swing that damaged this enemy (once per swing)
     timer: number; // wander: seconds until next heading change
 };
 
@@ -28,6 +29,7 @@ export function createEnemy(kind: EnemyKind, x: number, z: number): Enemy {
         speed: chaser ? 4 : 2.5,
         radius: 0.5,
         hp: chaser ? 2 : 1,
+        hitSwing: -1,
         timer: 0,
     };
 }

@@ -86,15 +86,16 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   re-points to a different 16px atlas tile. The renderer normalizes within each
   model's own UV bounds (computed at upload) before repeating, so it works on
   primitives whose UVs already sit in a specific atlas tile.
-- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Space/J** attacks in a
-  forward arc (`ATTACK_RANGE`), killing enemies (chaser hp 2, wander hp 1).
-  Enemy contact costs a heart with i-frames (`INVULN`) + knockback; the player
-  blinks while invulnerable. Zero HP respawns at room A. A DOM `#hud` (in
-  `index.html`, updated from `main.ts`) shows hearts + enemy count.
+- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Space/J** starts a swing
+  that stays active ~0.16s (`attackTimer`) and damages each enemy in a wide
+  forward arc once per swing (`swingId` / `enemy.hitSwing`), killing them (chaser
+  hp 2, wander hp 1). A green slash (`slashInstance`, a scaled cube) shows in
+  front during the swing. Enemy contact costs a heart with i-frames (`INVULN`) +
+  knockback; the player blinks while invulnerable. Zero HP respawns at room A. A
+  DOM `#hud` shows hearts + enemy count; `#hint` shows the controls.
 - **Open seams** (not built yet): per-instance **palette** swap (needs a small
-  palette catalog reintroduced — heavier than UV); a visible attack swing
-  (currently the hit is invisible — the enemy just vanishes); and rooms as
-  authored modules.
+  palette catalog reintroduced — heavier than UV); a nicer attack visual (the
+  slash is a placeholder cube); and rooms as authored modules.
 
 ## Model space
 

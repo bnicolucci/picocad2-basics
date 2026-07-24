@@ -32,12 +32,24 @@
         user-select: none;
         pointer-events: none;
       }
+
+      #hint {
+        position: fixed;
+        bottom: 10px;
+        left: 14px;
+        font: 12px/1.2 monospace;
+        color: rgba(255, 255, 255, 0.6);
+        text-shadow: 0 1px 0 #000;
+        user-select: none;
+        pointer-events: none;
+      }
     </style>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=2" />
   </head>
   <body>
     <canvas id="view"></canvas>
     <div id="hud"></div>
+    <div id="hint">WASD / arrows: move &nbsp;·&nbsp; Space or J: attack</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

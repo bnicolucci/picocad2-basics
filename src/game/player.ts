@@ -4,6 +4,7 @@ import { clampToRoom } from './map';
 import type { Input, World } from './world';
 
 const ATTACK_COOLDOWN = 0.4;
+const ATTACK_DURATION = 0.16; // how long a swing stays "active" (forgiving window)
 
 export type Player = {
     x: number;
@@ -15,8 +16,9 @@ export type Player = {
     hp: number;
     maxHp: number;
     invuln: number; // seconds of damage immunity remaining
+    attackTimer: number; // seconds the current swing stays active
     attackCooldown: number; // seconds until able to attack again
-    attackFired: boolean; // an attack started this frame (combat consumes it)
+    swingId: number; // increments per swing, so each enemy is hit once per swing
 };
 
 export function createPlayer(): Player {
@@ -30,19 +32,21 @@ export function createPlayer(): Player {
         hp: 3,
         maxHp: 3,
         invuln: 0,
+        attackTimer: 0,
         attackCooldown: 0,
-        attackFired: false,
+        swingId: 0,
     };
 }
 
 export function updatePlayer(p: Player, w: World, dt: number, input: Input): void {
     p.invuln = Math.max(0, p.invuln - dt);
+    p.attackTimer = Math.max(0, p.attackTimer - dt);
     p.attackCooldown = Math.max(0, p.attackCooldown - dt);
 
-    p.attackFired = false;
     if ((input.has(' ') || input.has('j')) && p.attackCooldown <= 0) {
-        p.attackFired = true;
+        p.attackTimer = ATTACK_DURATION;
         p.attackCooldown = ATTACK_COOLDOWN;
+        p.swingId++;
     }
 
     let dx = 0;
@@ -66,5 +70,16 @@ export function playerInstance(w: World, p: Player): Instance {
     return {
         model: w.handles[p.model],
         matrix: compose({ x: p.x, y: -1.2, z: p.z }, { x: 0, y: p.facing, z: 0 }, { x: 1, y: 1, z: 1 }),
+    };
+}
+
+// A brief slash in front of the player while a swing is active; null otherwise.
+export function slashInstance(w: World, p: Player): Instance | null {
+    if (p.attackTimer <= 0) return null;
+    const fx = Math.sin(p.facing);
+    const fz = Math.cos(p.facing);
+    return {
+        model: w.handles.mesh_cube,
+        matrix: compose({ x: p.x + fx * 1.0, y: 0.6, z: p.z + fz * 1.0 }, { x: 0, y: p.facing, z: 0 }, { x: 1.4, y: 0.3, z: 0.6 }),
     };
 }
