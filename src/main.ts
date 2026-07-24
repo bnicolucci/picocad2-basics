@@ -40,13 +40,23 @@ function drawHud(): void {
     hud.textContent = `${hearts}   enemies ${world.enemies.length}`;
 }
 
+// The camera is fixed (never moves), so its view-projection/light only need
+// to be recomputed when the canvas aspect ratio changes (e.g. window resize).
+let cachedAspect = renderer.aspect;
+let viewProj = viewProjection(world.camera, cachedAspect);
+const lightDir = cameraLightDir(world.camera);
+
 let last = performance.now();
 function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
     update(world, dt, keys);
-    renderer.render(viewProjection(world.camera, renderer.aspect), cameraLightDir(world.camera), draw(world));
+    if (renderer.aspect !== cachedAspect) {
+        cachedAspect = renderer.aspect;
+        viewProj = viewProjection(world.camera, cachedAspect);
+    }
+    renderer.render(viewProj, lightDir, draw(world));
     drawHud();
     requestAnimationFrame(frame);
 }

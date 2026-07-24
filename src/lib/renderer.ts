@@ -1,6 +1,6 @@
 import type { Mat4 } from './math';
 import { multiply } from './math';
-import type { GpuMesh } from './mesh';
+import { type GpuMesh, VERTEX_FLOATS } from './mesh';
 import type { BuiltTexture } from './picocad2';
 
 const VERTEX_SHADER = `#version 300 es
@@ -188,7 +188,7 @@ export class Renderer {
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
 
-            const stride = 10 * 4;
+            const stride = VERTEX_FLOATS * 4;
             gl.enableVertexAttribArray(0);
             gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
             gl.enableVertexAttribArray(1);
@@ -310,7 +310,7 @@ function computeUvBounds(meshes: GpuMesh[]): [number, number, number, number] {
     let maxV = -Infinity;
     for (const mesh of meshes) {
         const v = mesh.vertices;
-        for (let i = 0; i < v.length; i += 10) {
+        for (let i = 0; i < v.length; i += VERTEX_FLOATS) {
             const u = v[i + 3];
             const w = v[i + 4];
             if (u < minU) minU = u;

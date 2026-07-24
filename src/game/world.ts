@@ -1,6 +1,7 @@
 import { type Camera, createCamera } from '../lib/camera';
 import type { ModelHandle } from '../lib/renderer';
 import type { Enemy } from './enemy';
+import { SPAWN_ROOM } from './map';
 import { createPlayer, type Player } from './player';
 
 // Currently-held keys, lowercased (e.g. 'w', 'arrowleft').
@@ -23,7 +24,7 @@ export function createWorld(handles: Record<string, ModelHandle>): World {
         camera: createCamera({ target: [0, 0.5, 0], yaw: 0, pitch: 0.85, distance: 19 }),
         player: createPlayer(),
         enemies: [],
-        roomId: 'A',
+        roomId: SPAWN_ROOM,
         time: 0,
     };
 }

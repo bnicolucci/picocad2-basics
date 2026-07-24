@@ -57,37 +57,3 @@ export function cameraLightDir(cam: Camera): [number, number, number] {
     const len = Math.hypot(x, y, z) || 1;
     return [x / len, y / len, z / len];
 }
-
-const PITCH_LIMIT = 1.45;
-
-// Left-drag orbits, wheel zooms. That's the whole camera interaction.
-export function installOrbitControls(canvas: HTMLCanvasElement, cam: Camera): void {
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    canvas.addEventListener('mousedown', (e) => {
-        dragging = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-    });
-    window.addEventListener('mouseup', () => {
-        dragging = false;
-    });
-    window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        cam.yaw -= (e.clientX - lastX) * 0.01;
-        cam.pitch += (e.clientY - lastY) * 0.01;
-        cam.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, cam.pitch));
-        lastX = e.clientX;
-        lastY = e.clientY;
-    });
-    canvas.addEventListener(
-        'wheel',
-        (e) => {
-            e.preventDefault();
-            cam.distance = Math.max(1, cam.distance * (1 + e.deltaY * 0.001));
-        },
-        { passive: false },
-    );
-}

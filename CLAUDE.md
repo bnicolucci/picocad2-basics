@@ -49,15 +49,15 @@ kind owns one file holding its data **and** behavior **and** how it renders
 | `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (player → doors → enemies → collision → combat, in that order), `draw` (emit the `Instance[]`). |
 | `src/game/player.ts` | The player: record, WASD/arrow movement, Z/X attack (swing + `slashInstance`), health, render instance. |
 | `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + hp + render instance; `spawnRoomEnemies`. |
-| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
+| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, props, enemy spawns. Owns geometry (`mapInstances`, cached per room; `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
 | `src/game/collide.ts` | `resolveCollisions(w)`: circle-circle on XZ, run after movement. Props are static (push the mover out); player/enemies split the push; everyone re-clamped to the room. Entities carry a `radius`. |
 | `src/game/combat.ts` | `resolveCombat(w)`: player attack (forward arc) damages/kills enemies; enemy contact damages the player with i-frames + knockback; death respawns at room A. |
 | `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
 | `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
-| `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture, bounds }` ready for `Renderer.upload()`. |
+| `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture }` ready for `Renderer.upload()`. |
 | `src/lib/renderer.ts` | Minimal WebGL2 renderer. `upload(meshes, texture)` returns a `ModelHandle`; `render(viewProj, lightDir, instances)` draws an `Instance[]` (`{ model, matrix, uv? }`). One palette-shaded program, no AA, half-res retro upscale. Per-instance `uv: UvTransform` tiles/re-tiles the texture (see below). |
-| `src/lib/camera.ts` | Perspective camera, view-space headlight, orbit controls (unused by the game, which drives the camera directly). |
-| `src/lib/math.ts` | Column-major mat4 + quaternion helpers, `clamp`, `compose` (T·R·S). |
+| `src/lib/camera.ts` | Perspective camera, view-space headlight. The game drives the camera directly (fixed, no interactive controls). |
+| `src/lib/math.ts` | Column-major mat4 + quaternion helpers, `clamp`, `compose` (T·R·S), `groundTransform` (yaw-only ground-standing transform), `normalize2`/`dirTo2` (2D XZ direction helpers). |
 | `src/assets/**/*.txt` | picoCAD2 models (`model.txt`) and primitives (`primitives/mesh_*.txt`). |
 
 ## Game (`src/game/`)
@@ -72,7 +72,7 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   `update`/`draw`. (This is deliberately the light version; the ECS upgrade path
   — `createX`→spawn blueprint, `updateX`→system — is in ARCHITECTURE.md §8.)
 - **Rooms** (`ROOMS` in `map.ts`) are data: which walls have `doors` (and where
-  they lead), one distinguishing `prop`, and an `enemies` spawn list. Rooms sit
+  they lead), a list of `props`, and an `enemies` spawn list. Rooms sit
   at the origin; the camera is fixed and framed on the room, so entering a room
   swaps its contents in place. `enterRoom` repositions the player at the opposite
   doorway; `game.ts` respawns that room's enemies.

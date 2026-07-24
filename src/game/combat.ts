@@ -1,5 +1,6 @@
+import { dirTo2 } from '../lib/math';
 import { spawnRoomEnemies } from './enemy';
-import { clampToRoom } from './map';
+import { clampToRoom, SPAWN_ROOM } from './map';
 import type { World } from './world';
 
 const ATTACK_RANGE = 1.9;
@@ -17,10 +18,8 @@ export function resolveCombat(w: World): void {
         const fz = Math.cos(p.facing);
         for (const e of w.enemies) {
             if (e.hitSwing === p.swingId) continue;
-            const dx = e.x - p.x;
-            const dz = e.z - p.z;
-            const dist = Math.hypot(dx, dz);
-            if (dist <= ATTACK_RANGE && (dist < 1e-4 || (dx / dist) * fx + (dz / dist) * fz >= ATTACK_ARC)) {
+            const d = dirTo2(p.x, p.z, e.x, e.z);
+            if (d.dist <= ATTACK_RANGE && (d.dist < 1e-4 || d.x * fx + d.z * fz >= ATTACK_ARC)) {
                 e.hp -= 1;
                 e.hitSwing = p.swingId;
             }
@@ -31,14 +30,12 @@ export function resolveCombat(w: World): void {
     // Enemy contact damages the player, with i-frames + knockback.
     if (p.invuln <= 0) {
         for (const e of w.enemies) {
-            const dx = p.x - e.x;
-            const dz = p.z - e.z;
-            const dist = Math.hypot(dx, dz);
-            if (dist <= p.radius + e.radius + 0.1) {
+            const d = dirTo2(e.x, e.z, p.x, p.z);
+            if (d.dist <= p.radius + e.radius + 0.1) {
                 p.hp -= 1;
                 p.invuln = INVULN;
-                const nx = dist > 1e-4 ? dx / dist : 1;
-                const nz = dist > 1e-4 ? dz / dist : 0;
+                const nx = d.dist > 1e-4 ? d.x : 1;
+                const nz = d.dist > 1e-4 ? d.z : 0;
                 p.x += nx * KNOCKBACK;
                 p.z += nz * KNOCKBACK;
                 clampToRoom(w, p);
@@ -53,7 +50,7 @@ export function resolveCombat(w: World): void {
         p.invuln = INVULN;
         p.x = 0;
         p.z = 0;
-        w.roomId = 'A';
+        w.roomId = SPAWN_ROOM;
         spawnRoomEnemies(w);
     }
 }

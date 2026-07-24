@@ -75,6 +75,25 @@ export function compose(pos: Vec3, rot: Vec3, scale: Vec3): Mat4 {
     return out;
 }
 
+// Unit vector for (x,z), plus its length. Zero vector if too short to have a
+// meaningful direction (caller decides how to handle that case).
+export function normalize2(x: number, z: number): { x: number; z: number; len: number } {
+    const len = Math.hypot(x, z);
+    return len > 1e-6 ? { x: x / len, z: z / len, len } : { x: 0, z: 0, len };
+}
+
+// Unit direction from (ax,az) to (bx,bz) on the XZ plane, plus the distance.
+export function dirTo2(ax: number, az: number, bx: number, bz: number): { x: number; z: number; dist: number } {
+    const n = normalize2(bx - ax, bz - az);
+    return { x: n.x, z: n.z, dist: n.len };
+}
+
+// A ground-standing transform: position + yaw-only rotation + scale. The
+// common case for top-down entities/props (compose with pitch/roll always 0).
+export function groundTransform(x: number, y: number, z: number, facing: number, scale: Vec3 = { x: 1, y: 1, z: 1 }): Mat4 {
+    return compose({ x, y, z }, { x: 0, y: facing, z: 0 }, scale);
+}
+
 export function perspective(fovYRadians: number, aspect: number, near: number, far: number): Mat4 {
     const f = 1 / Math.tan(fovYRadians / 2);
     const nf = 1 / (near - far);

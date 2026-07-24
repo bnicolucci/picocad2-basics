@@ -1,4 +1,4 @@
-import { compose } from '../lib/math';
+import { dirTo2, groundTransform } from '../lib/math';
 import type { Instance, UvTransform } from '../lib/renderer';
 import { clampToRoom, roomEnemySpawns } from './map';
 import type { World } from './world';
@@ -45,13 +45,11 @@ export function spawnRoomEnemies(w: World): void {
 
 export function updateEnemy(e: Enemy, w: World, dt: number): void {
     if (e.kind === 'chaser') {
-        const dx = w.player.x - e.x;
-        const dz = w.player.z - e.z;
-        const len = Math.hypot(dx, dz);
-        if (len > 0.001) {
-            e.x += (dx / len) * e.speed * dt;
-            e.z += (dz / len) * e.speed * dt;
-            e.facing = Math.atan2(dx, dz);
+        const dir = dirTo2(e.x, e.z, w.player.x, w.player.z);
+        if (dir.dist > 0.001) {
+            e.x += dir.x * e.speed * dt;
+            e.z += dir.z * e.speed * dt;
+            e.facing = Math.atan2(dir.x, dir.z);
         }
     } else {
         e.timer -= dt;
@@ -69,7 +67,7 @@ export function enemyInstance(w: World, e: Enemy): Instance {
     // sphere/cylinder are unit-centered, so y 0.5 sets their base on the floor.
     return {
         model: w.handles[e.model],
-        matrix: compose({ x: e.x, y: 0.5, z: e.z }, { x: 0, y: e.facing, z: 0 }, { x: 1, y: 1, z: 1 }),
+        matrix: groundTransform(e.x, 0.5, e.z, e.facing),
         uv: e.uv,
     };
 }

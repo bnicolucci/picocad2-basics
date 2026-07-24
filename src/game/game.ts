@@ -2,14 +2,14 @@ import type { Instance } from '../lib/renderer';
 import { resolveCollisions } from './collide';
 import { resolveCombat } from './combat';
 import { enemyInstance, spawnRoomEnemies, updateEnemy } from './enemy';
-import { doorCrossed, enterRoom, mapInstances } from './map';
+import { doorCrossed, enterRoom, mapInstances, SPAWN_ROOM } from './map';
 import { playerInstance, slashInstance, updatePlayer } from './player';
 import type { Input, World } from './world';
 
 // The PICO-8 contract: init once, then update + draw every frame.
 
 export function init(w: World): void {
-    w.roomId = 'A';
+    w.roomId = SPAWN_ROOM;
     w.player.x = 0;
     w.player.z = 0;
     spawnRoomEnemies(w);

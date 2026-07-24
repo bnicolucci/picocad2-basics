@@ -1,4 +1,4 @@
-import { compose } from '../lib/math';
+import { compose, groundTransform, normalize2 } from '../lib/math';
 import type { Instance, UvTransform } from '../lib/renderer';
 import { clampToRoom } from './map';
 import type { Input, World } from './world';
@@ -59,10 +59,10 @@ export function updatePlayer(p: Player, w: World, dt: number, input: Input): voi
     if (input.has('d') || input.has('arrowright')) dx += 1;
 
     if (dx !== 0 || dz !== 0) {
-        const len = Math.hypot(dx, dz);
-        p.x += (dx / len) * p.speed * dt;
-        p.z += (dz / len) * p.speed * dt;
-        p.facing = Math.atan2(dx, dz);
+        const dir = normalize2(dx, dz);
+        p.x += dir.x * p.speed * dt;
+        p.z += dir.z * p.speed * dt;
+        p.facing = Math.atan2(dir.x, dir.z);
     }
     clampToRoom(w, p);
 }
@@ -71,7 +71,7 @@ export function playerInstance(w: World, p: Player): Instance {
     // Capsule sits at local y 1.2..2.8, so offset it down onto the floor.
     return {
         model: w.handles[p.model],
-        matrix: compose({ x: p.x, y: -1.2, z: p.z }, { x: 0, y: p.facing, z: 0 }, { x: 1, y: 1, z: 1 }),
+        matrix: groundTransform(p.x, -1.2, p.z, p.facing),
         uv: p.uv,
     };
 }

@@ -48,8 +48,8 @@ src/
   lib/           reusable engine (no game logic)
     math.ts      mat4 + quat helpers, clamp, compose (T·R·S)
     picocad2.ts  parse a .txt model + build its textures
-    mesh.ts      model graph -> GPU vertex buffers (+ normals, uv bounds)
-    model.ts     buildModel(text) -> { meshes, texture, bounds }
+    mesh.ts      model graph -> GPU vertex buffers (+ computed normals)
+    model.ts     buildModel(text) -> { meshes, texture }
     renderer.ts  WebGL2: upload models, draw Instances
     camera.ts    perspective camera + view-space headlight
   assets/
@@ -128,7 +128,7 @@ facing, hp, ... }`). No classes, no inheritance.
 `resolveCollisions(world)`, `resolveCombat(world)`. They loop over entities.
 
 **Rooms are data** (`ROOMS` in `map.ts`): each room lists its `doors` (and where
-they lead), a `prop`, and its `enemies` spawn list. The world is centered on the
+they lead), a list of `props`, and its `enemies` spawn list. The world is centered on the
 origin, the camera is fixed, so changing rooms swaps contents in place.
 
 **Rendering handles.** A model is uploaded to the GPU once and referred to by a
@@ -181,7 +181,7 @@ Pick its model/speed/hp in `createEnemy`.
 
 Add an entry to `ROOMS` in `map.ts` — pure data:
 ```ts
-D: { doors: { west: 'C' }, prop: { model: 'mesh_cube', x: 0, z: -3 },
+D: { doors: { west: 'C' }, props: [{ model: 'mesh_cube', x: 0, z: -3 }],
      enemies: [{ kind: 'chaser', x: -3, z: 0 }, { kind: 'wander', x: 3, z: 0 }] },
 ```
 Wire it by giving an existing room a door to `'D'`. Geometry (walls, doorway gap,

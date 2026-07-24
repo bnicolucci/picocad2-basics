@@ -1,4 +1,4 @@
-import { clamp, compose } from '../lib/math';
+import { clamp, groundTransform } from '../lib/math';
 import type { Instance } from '../lib/renderer';
 import type { EnemyKind } from './enemy';
 import type { World } from './world';
@@ -18,17 +18,22 @@ const LIMIT_Z = HZ - WALL_T / 2 - ENTITY_R;
 export type Dir = 'north' | 'south' | 'east' | 'west';
 type Ground = { x: number; z: number };
 
+// The room the player starts in and respawns to on death.
+export const SPAWN_ROOM = 'A';
+
 type EnemySpawn = { kind: EnemyKind; x: number; z: number };
+// radius defaults to 0.5 (the unit primitives' footprint) when omitted.
+type Prop = { model: string; x: number; z: number; radius?: number };
 type RoomDef = {
     doors: Partial<Record<Dir, string>>;
-    prop?: { model: string; x: number; z: number };
+    props: Prop[];
     enemies: EnemySpawn[];
 };
 
 const ROOMS: Record<string, RoomDef> = {
-    A: { doors: { north: 'B' }, prop: { model: 'mesh_sphere', x: -4, z: -2 }, enemies: [{ kind: 'wander', x: 3, z: 2 }] },
-    B: { doors: { south: 'A', east: 'C' }, prop: { model: 'mesh_cylinder', x: 4, z: 2 }, enemies: [{ kind: 'chaser', x: 0, z: -2 }] },
-    C: { doors: { west: 'B' }, prop: { model: 'mesh_cube', x: 0, z: 0 }, enemies: [{ kind: 'chaser', x: -3, z: 2 }, { kind: 'wander', x: 3, z: -2 }] },
+    A: { doors: { north: 'B' }, props: [{ model: 'mesh_sphere', x: -4, z: -2 }], enemies: [{ kind: 'wander', x: 3, z: 2 }] },
+    B: { doors: { south: 'A', east: 'C' }, props: [{ model: 'mesh_cylinder', x: 4, z: 2 }], enemies: [{ kind: 'chaser', x: 0, z: -2 }] },
+    C: { doors: { west: 'B' }, props: [{ model: 'mesh_cube', x: 0, z: 0 }], enemies: [{ kind: 'chaser', x: -3, z: 2 }, { kind: 'wander', x: 3, z: -2 }] },
 };
 
 function room(w: World): RoomDef {
@@ -39,11 +44,9 @@ export function roomEnemySpawns(w: World): EnemySpawn[] {
     return room(w).enemies;
 }
 
-// Static circle colliders in the current room (props). Radius 0.5 = the
-// unit primitives' footprint.
+// Static circle colliders in the current room (props).
 export function roomColliders(w: World): { x: number; z: number; radius: number }[] {
-    const prop = room(w).prop;
-    return prop ? [{ x: prop.x, z: prop.z, radius: 0.5 }] : [];
+    return room(w).props.map((p) => ({ x: p.x, z: p.z, radius: p.radius ?? 0.5 }));
 }
 
 // Keeps a ground position inside the room walls, but allows walking into an
@@ -85,27 +88,40 @@ export function enterRoom(w: World, exitDir: Dir): void {
     else (w.player.x = -HX + inset), (w.player.z = 0);
 }
 
+// Room geometry (floor/walls/props) only changes when roomId changes, so
+// it's cached instead of rebuilt every draw() call.
+let cachedRoomId: string | null = null;
+let cachedInstances: Instance[] = [];
+
 export function mapInstances(w: World): Instance[] {
+    if (w.roomId !== cachedRoomId) {
+        cachedRoomId = w.roomId;
+        cachedInstances = buildRoomInstances(w);
+    }
+    return cachedInstances;
+}
+
+function buildRoomInstances(w: World): Instance[] {
     const out: Instance[] = [];
     const def = room(w);
 
     out.push({
         model: w.handles.mesh_plane,
-        matrix: compose({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: ROOM_W, y: 1, z: ROOM_D }),
+        matrix: groundTransform(0, 0, 0, 0, { x: ROOM_W, y: 1, z: ROOM_D }),
         uv: { repeatU: 7, repeatV: 5 }, // tile the floor texture instead of stretching it
     });
 
     for (const seg of wallSegments(def.doors)) {
         out.push({
             model: w.handles.mesh_cube,
-            matrix: compose({ x: seg.x, y: WALL_H / 2, z: seg.z }, { x: 0, y: 0, z: 0 }, { x: seg.sx, y: WALL_H, z: seg.sz }),
+            matrix: groundTransform(seg.x, WALL_H / 2, seg.z, 0, { x: seg.sx, y: WALL_H, z: seg.sz }),
         });
     }
 
-    if (def.prop) {
+    for (const prop of def.props) {
         out.push({
-            model: w.handles[def.prop.model],
-            matrix: compose({ x: def.prop.x, y: 0.5, z: def.prop.z }, { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }),
+            model: w.handles[prop.model],
+            matrix: groundTransform(prop.x, 0.5, prop.z, 0),
         });
     }
 

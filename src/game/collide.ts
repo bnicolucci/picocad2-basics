@@ -1,3 +1,4 @@
+import { dirTo2 } from '../lib/math';
 import { clampToRoom, roomColliders } from './map';
 import type { World } from './world';
 
@@ -23,18 +24,12 @@ export function resolveCollisions(w: World): void {
 // Pushes a and b apart along their center line by their overlap, weighted.
 function separate(a: Circle, b: Circle, aWeight: number, bWeight: number): void {
     const minDist = a.radius + b.radius;
-    let dx = a.x - b.x;
-    let dz = a.z - b.z;
-    let dist = Math.hypot(dx, dz);
-    if (dist >= minDist) return;
-    if (dist < 1e-6) {
-        dx = 1;
-        dz = 0;
-        dist = 1;
-    }
-    const overlap = minDist - dist;
-    const nx = dx / dist;
-    const nz = dz / dist;
+    const d = dirTo2(b.x, b.z, a.x, a.z);
+    if (d.dist >= minDist) return;
+    const coincident = d.dist < 1e-6;
+    const nx = coincident ? 1 : d.x;
+    const nz = coincident ? 0 : d.z;
+    const overlap = minDist - (coincident ? 1 : d.dist);
     a.x += nx * overlap * aWeight;
     a.z += nz * overlap * aWeight;
     b.x -= nx * overlap * bWeight;

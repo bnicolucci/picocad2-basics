@@ -92,33 +92,6 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
     };
 }
 
-// Bounding sphere of the model in its own space (before the user transform),
-// so the camera can auto-frame whatever model is loaded.
-export function modelBounds(meshes: GpuMesh[]): { center: [number, number, number]; radius: number } {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const mesh of meshes) {
-        const m = mesh.localMatrix;
-        const v = mesh.vertices;
-        for (let i = 0; i < v.length; i += VERTEX_FLOATS) {
-            const x = v[i], y = v[i + 1], z = v[i + 2];
-            const wx = m[0] * x + m[4] * y + m[8] * z + m[12];
-            const wy = m[1] * x + m[5] * y + m[9] * z + m[13];
-            const wz = m[2] * x + m[6] * y + m[10] * z + m[14];
-            if (wx < minX) minX = wx;
-            if (wy < minY) minY = wy;
-            if (wz < minZ) minZ = wz;
-            if (wx > maxX) maxX = wx;
-            if (wy > maxY) maxY = wy;
-            if (wz > maxZ) maxZ = wz;
-        }
-    }
-    if (minX > maxX) return { center: [0, 0, 0], radius: 1 };
-    const center: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const radius = 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ);
-    return { center, radius: radius || 1 };
-}
-
 // Walks the model graph and returns a flat list of GPU meshes, each with its
 // baked placement matrix (mirror included).
 export function buildModelMeshes(data: PicoCad2Data): GpuMesh[] {
