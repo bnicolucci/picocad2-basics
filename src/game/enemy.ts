@@ -32,6 +32,8 @@ export function createEnemy(kind: EnemyKind, x: number, z: number): Enemy {
         hp: chaser ? 2 : 1,
         hitSwing: -1,
         timer: 0,
+        // Flat-color the primitive via an atlas tile: chaser red, wander green.
+        uv: { tile: chaser ? { u: 2, v: 1 } : { u: 3, v: 1 } },
     };
 }
 

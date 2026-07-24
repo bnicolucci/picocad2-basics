@@ -36,6 +36,7 @@ export function createPlayer(): Player {
         attackTimer: 0,
         attackCooldown: 0,
         swingId: 0,
+        uv:{ tile: { u: 1, v: 3 } },
     };
 }
 
