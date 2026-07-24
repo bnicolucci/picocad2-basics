@@ -12,6 +12,7 @@ export type Enemy = {
     kind: EnemyKind;
     model: string;
     speed: number;
+    radius: number;
     timer: number; // wander: seconds until next heading change
 };
 
@@ -24,6 +25,7 @@ export function createEnemy(kind: EnemyKind, x: number, z: number): Enemy {
         kind,
         model: chaser ? 'mesh_sphere' : 'mesh_cylinder',
         speed: chaser ? 4 : 2.5,
+        radius: 0.5,
         timer: 0,
     };
 }

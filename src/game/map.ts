@@ -39,6 +39,13 @@ export function roomEnemySpawns(w: World): EnemySpawn[] {
     return room(w).enemies;
 }
 
+// Static circle colliders in the current room (props). Radius 0.5 = the
+// unit primitives' footprint.
+export function roomColliders(w: World): { x: number; z: number; radius: number }[] {
+    const prop = room(w).prop;
+    return prop ? [{ x: prop.x, z: prop.z, radius: 0.5 }] : [];
+}
+
 // Keeps a ground position inside the room walls, but allows walking into an
 // aligned doorway (past the wall line) so a transition can trigger.
 export function clampToRoom(w: World, pos: Ground): void {

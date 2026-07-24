@@ -8,11 +8,12 @@ export type Player = {
     z: number;
     facing: number;
     speed: number;
+    radius: number;
     model: string;
 };
 
 export function createPlayer(): Player {
-    return { x: 0, z: 0, facing: 0, speed: 7, model: 'mesh_capsule' };
+    return { x: 0, z: 0, facing: 0, speed: 7, radius: 0.5, model: 'mesh_capsule' };
 }
 
 export function updatePlayer(p: Player, w: World, dt: number, input: Input): void {

@@ -1,4 +1,5 @@
 import type { Instance } from '../lib/renderer';
+import { resolveCollisions } from './collide';
 import { createEnemy, enemyInstance, updateEnemy } from './enemy';
 import { doorCrossed, enterRoom, mapInstances, roomEnemySpawns } from './map';
 import { playerInstance, updatePlayer } from './player';
@@ -25,6 +26,8 @@ export function update(w: World, dt: number, input: Input): void {
     }
 
     for (const e of w.enemies) updateEnemy(e, w, dt);
+
+    resolveCollisions(w);
 }
 
 export function draw(w: World): Instance[] {

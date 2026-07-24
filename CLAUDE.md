@@ -27,6 +27,7 @@ src/
     player.ts    Player: type, createPlayer, updatePlayer, playerInstance
     enemy.ts     Enemy: type, createEnemy, updateEnemy, enemyInstance
     map.ts       rooms data, geometry, clampToRoom, doorCrossed, enterRoom
+    collide.ts   resolveCollisions: circle-circle push on the XZ plane
   lib/           reusable engine core (no game logic)
   assets/        picoCAD2 model + primitive .txt files
 ```
@@ -42,7 +43,8 @@ kind owns one file holding its data **and** behavior **and** how it renders
 | `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (move player, run door transitions + enemies), `draw` (emit the `Instance[]`). |
 | `src/game/player.ts` | The player: record, WASD/arrow movement, render instance. |
 | `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + render instance. |
-| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`. |
+| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
+| `src/game/collide.ts` | `resolveCollisions(w)`: circle-circle on XZ, run after movement. Props are static (push the mover out); player/enemies split the push; everyone re-clamped to the room. Entities carry a `radius`. |
 | `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
 | `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
 | `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture, bounds }` ready for `Renderer.upload()`. |
@@ -74,9 +76,12 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
 - **`clampToRoom`** keeps any `{x,z}` inside the walls but permits walking into
   an aligned doorway; player and enemies share it. There is no scene graph —
   `draw` returns a flat `Instance[]` ("minimal object list").
-- **Open seams** (not built yet): per-entity collision (`radius` + a
-  `resolveCollisions` pass), per-instance UV/palette override for varied
-  appearance, and rooms as authored modules.
+- **Collision** (`collide.ts`) runs each frame after movement: circle-circle on
+  the XZ plane. Props push the player/enemies out; player and enemies push each
+  other apart. Colliders are approximate (a `radius` per entity), no rotation.
+- **Open seams** (not built yet): per-instance UV/palette override for varied
+  appearance, player↔enemy interaction (hits/health), and rooms as authored
+  modules.
 
 ## Model space
 
