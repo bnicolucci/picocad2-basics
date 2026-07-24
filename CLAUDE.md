@@ -1,9 +1,14 @@
-# picoCAD2 minimal — load a model, control it with code
+# picoCAD2 minimal — a tiny top-down game on a minimal WebGL2 engine
 
-A bare-bones WebGL2 viewer for picoCAD2 `.txt` models. It parses one model
-file, builds GPU meshes, and renders it with a perspective camera. There is no
-engine, ECS, editor, scene system, or physics — just enough to load a model
-and manipulate it from plain TypeScript.
+A small Zelda-style room crawler built on a bare-bones picoCAD2 renderer. The
+engine (`src/lib/`) parses picoCAD2 `.txt` models, builds GPU meshes, and draws
+them with a perspective camera — no scene graph, ECS, editor, or physics. The
+game (`src/game/`) is written PICO-8 style: `init` / `update` / `draw` over one
+`World` object, built entirely from primitive shapes.
+
+**See [ARCHITECTURE.md](ARCHITECTURE.md)** for the full developer guide: file
+layout, how to add features, and how to evolve toward ECS. This file is the
+quick reference.
 
 ## Package manager
 Use **bun** / **bunx**. Never npm/npx.
@@ -41,9 +46,9 @@ kind owns one file holding its data **and** behavior **and** how it renders
 |---|---|
 | `src/main.ts` | Entry point. Uploads every primitive once, tracks held keys, runs the loop (`update` → `draw` → `renderer.render`). |
 | `src/game/world.ts` | `World` (the state bag: handles, camera, player, enemies, roomId, time) + `createWorld`. `Input` is a `Set` of held keys. |
-| `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (move player, run door transitions + enemies), `draw` (emit the `Instance[]`). |
-| `src/game/player.ts` | The player: record, WASD/arrow movement, render instance. |
-| `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + render instance. |
+| `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (player → doors → enemies → collision → combat, in that order), `draw` (emit the `Instance[]`). |
+| `src/game/player.ts` | The player: record, WASD/arrow movement, Z/X attack (swing + `slashInstance`), health, render instance. |
+| `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + hp + render instance; `spawnRoomEnemies`. |
 | `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
 | `src/game/collide.ts` | `resolveCollisions(w)`: circle-circle on XZ, run after movement. Props are static (push the mover out); player/enemies split the push; everyone re-clamped to the room. Entities carry a `radius`. |
 | `src/game/combat.ts` | `resolveCombat(w)`: player attack (forward arc) damages/kills enemies; enemy contact damages the player with i-frames + knockback; death respawns at room A. |
@@ -65,7 +70,7 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   data, its `updateX(entity, world, dt)` behavior, and its `xInstance(world,
   entity)` render mapping. Adding a kind = new file + wire it into
   `update`/`draw`. (This is deliberately the light version; the ECS upgrade path
-  — `createX`→spawn blueprint, `updateX`→system — is noted in git history.)
+  — `createX`→spawn blueprint, `updateX`→system — is in ARCHITECTURE.md §8.)
 - **Rooms** (`ROOMS` in `map.ts`) are data: which walls have `doors` (and where
   they lead), one distinguishing `prop`, and an `enemies` spawn list. Rooms sit
   at the origin; the camera is fixed and framed on the room, so entering a room
@@ -85,7 +90,10 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
   texture across its surface (the floor uses `repeatU: 7, repeatV: 5`); `tile`
   re-points to a different 16px atlas tile. The renderer normalizes within each
   model's own UV bounds (computed at upload) before repeating, so it works on
-  primitives whose UVs already sit in a specific atlas tile.
+  primitives whose UVs already sit in a specific atlas tile. The player/enemies
+  set a `uv` tile for color (blue player, red chaser, green wander); only
+  textured faces recolor — flat `notex` faces keep their color, which is why a
+  palette swap is still wanted for uniform recoloring.
 - **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Z/X** (PICO-8 action
   buttons) starts a swing
   that stays active ~0.16s (`attackTimer`) and damages each enemy in a wide
