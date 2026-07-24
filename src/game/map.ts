@@ -92,6 +92,7 @@ export function mapInstances(w: World): Instance[] {
     out.push({
         model: w.handles.mesh_plane,
         matrix: compose({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: ROOM_W, y: 1, z: ROOM_D }),
+        uv: { repeatU: 7, repeatV: 5 }, // tile the floor texture instead of stretching it
     });
 
     for (const seg of wallSegments(def.doors)) {

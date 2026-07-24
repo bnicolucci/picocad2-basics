@@ -40,7 +40,22 @@ uniform vec3 u_lightDir;
 uniform float u_ambient;
 uniform float u_transparentIndex;
 
+// Per-instance UV atlas transform. u_uvSrc is the model's own UV rect
+// (origin.xy, size.zw); u_uvDst is the target tile rect. Sampled UVs are
+// normalized within src, repeated, then mapped into dst.
+uniform vec4 u_uvSrc;
+uniform vec4 u_uvDst;
+uniform vec2 u_uvRepeat;
+uniform bool u_useUv;
+
 out vec4 outColor;
+
+vec2 applyUv(vec2 uv) {
+  if (!u_useUv) return uv;
+  vec2 local = (uv - u_uvSrc.xy) / max(u_uvSrc.zw, vec2(1e-6));
+  local = fract(local * u_uvRepeat);
+  return u_uvDst.xy + local * u_uvDst.zw;
+}
 
 void main() {
   int flags = int(v_faceFlags + 0.5);
@@ -49,7 +64,7 @@ void main() {
 
   float colorIndex = v_colorIndex;
   if (!noTex) {
-    colorIndex = floor(texture(u_indexTexture, v_uv).r * 255.0 + 0.5);
+    colorIndex = floor(texture(u_indexTexture, applyUv(v_uv)).r * 255.0 + 0.5);
     if (abs(colorIndex - u_transparentIndex) < 0.5) discard;
   }
 
@@ -97,13 +112,28 @@ type UploadedModel = {
     indexTexture: WebGLTexture;
     paletteTexture: WebGLTexture;
     transparentIndex: number;
+    // The model's own UV bounding rect [minU, minV, sizeU, sizeV], used as the
+    // source rect for per-instance UV transforms.
+    uvBounds: [number, number, number, number];
 };
 
-// One thing to draw this frame: which uploaded model, and where.
-export type Instance = { model: ModelHandle; matrix: Mat4 };
+// Per-instance UV atlas transform. `repeatU/V` tiles the texture across the
+// surface; `tile` optionally re-points to a different 16px atlas tile
+// (1-based column/row). Atlas is 128px.
+export type UvTransform = {
+    repeatU?: number;
+    repeatV?: number;
+    tile?: { u: number; v: number; size?: number };
+};
+
+// One thing to draw this frame: which uploaded model, where, and how its
+// texture is mapped.
+export type Instance = { model: ModelHandle; matrix: Mat4; uv?: UvTransform };
 
 // Opaque index into the renderer's uploaded-model list.
 export type ModelHandle = number;
+
+const ATLAS = 128;
 
 export class Renderer {
     private gl: WebGL2RenderingContext;
@@ -128,7 +158,11 @@ export class Renderer {
             throw new Error(gl.getProgramInfoLog(program) ?? 'link failed');
         }
         this.program = program;
-        for (const name of ['u_viewProj', 'u_model', 'u_indexTexture', 'u_paletteTexture', 'u_lightDir', 'u_ambient', 'u_transparentIndex']) {
+        const uniformNames = [
+            'u_viewProj', 'u_model', 'u_indexTexture', 'u_paletteTexture', 'u_lightDir', 'u_ambient', 'u_transparentIndex',
+            'u_uvSrc', 'u_uvDst', 'u_uvRepeat', 'u_useUv',
+        ];
+        for (const name of uniformNames) {
             this.u[name] = gl.getUniformLocation(program, name);
         }
 
@@ -175,6 +209,7 @@ export class Renderer {
             indexTexture: this.makeIndexTexture(texture),
             paletteTexture: this.makePaletteTexture(texture),
             transparentIndex: texture.transparentIndex,
+            uvBounds: computeUvBounds(meshes),
         });
         return this.models.length - 1;
     }
@@ -238,6 +273,21 @@ export class Renderer {
                 gl.uniform1i(this.u.u_paletteTexture, 1);
                 boundModel = inst.model;
             }
+
+            if (inst.uv) {
+                const [sx, sy, sw, sh] = model.uvBounds;
+                const size = (inst.uv.tile?.size ?? 16) / ATLAS;
+                const dst = inst.uv.tile
+                    ? [(inst.uv.tile.u - 1) * size, (inst.uv.tile.v - 1) * size, size, size]
+                    : [sx, sy, sw, sh];
+                gl.uniform1i(this.u.u_useUv, 1);
+                gl.uniform4f(this.u.u_uvSrc, sx, sy, sw, sh);
+                gl.uniform4f(this.u.u_uvDst, dst[0], dst[1], dst[2], dst[3]);
+                gl.uniform2f(this.u.u_uvRepeat, inst.uv.repeatU ?? 1, inst.uv.repeatV ?? 1);
+            } else {
+                gl.uniform1i(this.u.u_useUv, 0);
+            }
+
             for (const mesh of model.meshes) {
                 gl.uniformMatrix4fv(this.u.u_model, false, multiply(inst.matrix, mesh.localMatrix));
                 gl.bindVertexArray(mesh.vao);
@@ -250,4 +300,25 @@ export class Renderer {
     get aspect(): number {
         return this.canvas.width / this.canvas.height || 1;
     }
+}
+
+// UV bounding rect across all of a model's vertices (uv at floats 3,4 of 10).
+function computeUvBounds(meshes: GpuMesh[]): [number, number, number, number] {
+    let minU = Infinity;
+    let minV = Infinity;
+    let maxU = -Infinity;
+    let maxV = -Infinity;
+    for (const mesh of meshes) {
+        const v = mesh.vertices;
+        for (let i = 0; i < v.length; i += 10) {
+            const u = v[i + 3];
+            const w = v[i + 4];
+            if (u < minU) minU = u;
+            if (w < minV) minV = w;
+            if (u > maxU) maxU = u;
+            if (w > maxV) maxV = w;
+        }
+    }
+    if (minU > maxU) return [0, 0, 1, 1];
+    return [minU, minV, maxU - minU, maxV - minV];
 }

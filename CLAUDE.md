@@ -48,7 +48,7 @@ kind owns one file holding its data **and** behavior **and** how it renders
 | `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
 | `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
 | `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture, bounds }` ready for `Renderer.upload()`. |
-| `src/lib/renderer.ts` | Minimal WebGL2 renderer. `upload(meshes, texture)` returns a `ModelHandle`; `render(viewProj, lightDir, instances)` draws an `Instance[]` (`{ model: handle, matrix }`). One palette-shaded program, no AA, half-res retro upscale. |
+| `src/lib/renderer.ts` | Minimal WebGL2 renderer. `upload(meshes, texture)` returns a `ModelHandle`; `render(viewProj, lightDir, instances)` draws an `Instance[]` (`{ model, matrix, uv? }`). One palette-shaded program, no AA, half-res retro upscale. Per-instance `uv: UvTransform` tiles/re-tiles the texture (see below). |
 | `src/lib/camera.ts` | Perspective camera, view-space headlight, orbit controls (unused by the game, which drives the camera directly). |
 | `src/lib/math.ts` | Column-major mat4 + quaternion helpers, `clamp`, `compose` (T·R·S). |
 | `src/assets/**/*.txt` | picoCAD2 models (`model.txt`) and primitives (`primitives/mesh_*.txt`). |
@@ -79,9 +79,14 @@ primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
 - **Collision** (`collide.ts`) runs each frame after movement: circle-circle on
   the XZ plane. Props push the player/enemies out; player and enemies push each
   other apart. Colliders are approximate (a `radius` per entity), no rotation.
-- **Open seams** (not built yet): per-instance UV/palette override for varied
-  appearance, player↔enemy interaction (hits/health), and rooms as authored
-  modules.
+- **Per-instance UV** (`Instance.uv: UvTransform`): `repeatU/V` tiles a model's
+  texture across its surface (the floor uses `repeatU: 7, repeatV: 5`); `tile`
+  re-points to a different 16px atlas tile. The renderer normalizes within each
+  model's own UV bounds (computed at upload) before repeating, so it works on
+  primitives whose UVs already sit in a specific atlas tile.
+- **Open seams** (not built yet): per-instance **palette** swap (needs a small
+  palette catalog reintroduced — heavier than UV), player↔enemy interaction
+  (hits/health), and rooms as authored modules.
 
 ## Model space
 
