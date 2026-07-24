@@ -20,44 +20,63 @@ Use **bun** / **bunx**. Never npm/npx.
 
 ```
 src/
-  main.ts        app entry: loads assets, wires input + the game loop
-  game.ts        game logic: rooms, player, camera, transitions
+  main.ts        app entry: uploads primitives, tracks keys, runs init/update/draw
+  game/          game logic (PICO-8 style)
+    world.ts     World state bag + createWorld
+    game.ts      init(world) / update(world, dt, input) / draw(world)
+    player.ts    Player: type, createPlayer, updatePlayer, playerInstance
+    enemy.ts     Enemy: type, createEnemy, updateEnemy, enemyInstance
+    map.ts       rooms data, geometry, clampToRoom, doorCrossed, enterRoom
   lib/           reusable engine core (no game logic)
   assets/        picoCAD2 model + primitive .txt files
 ```
 
-Engine core lives in `src/lib/`; `main.ts` and game-specific code (`game.ts`)
-stay above it, so the library stays clean as the game grows.
+Engine core lives in `src/lib/`; game code lives in `src/game/`. Each entity
+kind owns one file holding its data **and** behavior **and** how it renders
+(`createX` / `updateX` / `xInstance`) — the PICO-8 "one file per thing" shape.
 
 | File | Role |
 |---|---|
-| `src/main.ts` | Entry point. Uploads every primitive once, tracks held keys, runs the loop (`game.update` → `renderer.render`). |
-| `src/game.ts` | The game: room definitions, WASD player, angled top-down camera, doorway transitions. Emits an `Instance[]` for the renderer each frame. |
+| `src/main.ts` | Entry point. Uploads every primitive once, tracks held keys, runs the loop (`update` → `draw` → `renderer.render`). |
+| `src/game/world.ts` | `World` (the state bag: handles, camera, player, enemies, roomId, time) + `createWorld`. `Input` is a `Set` of held keys. |
+| `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (move player, run door transitions + enemies), `draw` (emit the `Instance[]`). |
+| `src/game/player.ts` | The player: record, WASD/arrow movement, render instance. |
+| `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + render instance. |
+| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, prop, enemy spawns. Owns geometry (`mapInstances`, `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`. |
 | `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
 | `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
 | `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture, bounds }` ready for `Renderer.upload()`. |
 | `src/lib/renderer.ts` | Minimal WebGL2 renderer. `upload(meshes, texture)` returns a `ModelHandle`; `render(viewProj, lightDir, instances)` draws an `Instance[]` (`{ model: handle, matrix }`). One palette-shaded program, no AA, half-res retro upscale. |
 | `src/lib/camera.ts` | Perspective camera, view-space headlight, orbit controls (unused by the game, which drives the camera directly). |
-| `src/lib/math.ts` | Column-major mat4 + quaternion helpers. |
+| `src/lib/math.ts` | Column-major mat4 + quaternion helpers, `clamp`, `compose` (T·R·S). |
 | `src/assets/**/*.txt` | picoCAD2 models (`model.txt`) and primitives (`primitives/mesh_*.txt`). |
 
-## Game (`src/game.ts`)
+## Game (`src/game/`)
 
-A top-down-ish (angled) Zelda-style room crawler, built entirely from primitives.
+A top-down-ish (angled) Zelda-style room crawler, built entirely from
+primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
+`World` object (no globals — the `World` is passed in).
 
-- **Rooms** (`ROOMS`) are data: which walls have `doors` (and where they lead)
-  plus one distinguishing `prop`. Rooms are centered at the origin; the camera
-  is fixed and framed on the room, so entering a new room swaps its contents in
-  place.
+- **Entities are plain records** (`Player`, `Enemy`). Each kind's file owns its
+  data, its `updateX(entity, world, dt)` behavior, and its `xInstance(world,
+  entity)` render mapping. Adding a kind = new file + wire it into
+  `update`/`draw`. (This is deliberately the light version; the ECS upgrade path
+  — `createX`→spawn blueprint, `updateX`→system — is noted in git history.)
+- **Rooms** (`ROOMS` in `map.ts`) are data: which walls have `doors` (and where
+  they lead), one distinguishing `prop`, and an `enemies` spawn list. Rooms sit
+  at the origin; the camera is fixed and framed on the room, so entering a room
+  swaps its contents in place. `enterRoom` repositions the player at the opposite
+  doorway; `game.ts` respawns that room's enemies.
 - **Walls** are unit `mesh_cube`s scaled into segments (`wallSegments`), leaving
   a centered gap on any wall with a door. **Floor** is a scaled `mesh_plane`.
-- **Player** is `mesh_capsule` (offset `y -1.2` so its feet sit on the floor),
-  moved in world XZ by WASD/arrows, clamped to the room except through aligned
-  doorways. Crossing a door threshold calls `enter()`, which swaps the room and
-  repositions the player at the opposite doorway.
-- **Multi-object rendering**: `Game.instances()` returns floor + walls + prop +
-  player as `{ model: handle, matrix }`. The renderer draws them; there is no
-  scene graph — just the flat list ("minimal object list").
+  **Player** is `mesh_capsule` (offset `y -1.2` so its feet sit on the floor);
+  enemies are unit-centered primitives (`y 0.5`).
+- **`clampToRoom`** keeps any `{x,z}` inside the walls but permits walking into
+  an aligned doorway; player and enemies share it. There is no scene graph —
+  `draw` returns a flat `Instance[]` ("minimal object list").
+- **Open seams** (not built yet): per-entity collision (`radius` + a
+  `resolveCollisions` pass), per-instance UV/palette override for varied
+  appearance, and rooms as authored modules.
 
 ## Model space
 
@@ -65,12 +84,13 @@ picoCAD2 models are X-mirrored vs. a right-handed WebGL world. `mesh.ts` applies
 that as one innermost mirror matrix per model; face normals are negated to match
 the winding flip, and the shader flips normals on back faces for lighting.
 
-## Controlling the model
+## Loop & input
 
-`src/main.ts` exposes a `model` with `position`, `rotation` (radians, XYZ Euler),
-and `scale`. Mutate them from the `update()` function (or the devtools console —
-`model` and `camera` are on `window`). Each frame `main.ts` composes
-`T * R * S` and passes it to the renderer.
+`src/main.ts` uploads every primitive once (`import.meta.glob` over
+`assets/primitives`), builds the `World`, calls `init` once, then each frame runs
+`update(world, dt, keys)` and feeds `draw(world)` to the renderer. Held keys are
+a `Set<string>` (lowercased). The `world` is exposed on `window` for console
+poking. WASD/arrows move the player; walk through a doorway to change rooms.
 
 ## The format-conversion question
 

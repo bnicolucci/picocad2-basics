@@ -1,4 +1,5 @@
-import { Game } from './game';
+import { draw, init, update } from './game/game';
+import { createWorld } from './game/world';
 import { cameraLightDir, viewProjection } from './lib/camera';
 import { buildModel } from './lib/model';
 import { type ModelHandle, Renderer } from './lib/renderer';
@@ -28,18 +29,19 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
-// --- Game + render loop ----------------------------------------------------
-const game = new Game(handles);
+// --- init / update / draw loop ---------------------------------------------
+const world = createWorld(handles);
+init(world);
 
 let last = performance.now();
 function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
-    game.update(dt, keys);
-    renderer.render(viewProjection(game.camera, renderer.aspect), cameraLightDir(game.camera), game.instances());
+    update(world, dt, keys);
+    renderer.render(viewProjection(world.camera, renderer.aspect), cameraLightDir(world.camera), draw(world));
     requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-Object.assign(window as unknown as Record<string, unknown>, { game });
+Object.assign(window as unknown as Record<string, unknown>, { world });
