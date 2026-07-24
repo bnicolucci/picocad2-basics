@@ -4,6 +4,10 @@
 export type Mat4 = Float32Array;
 export type Vec3 = { x: number; y: number; z: number };
 
+export function clamp(v: number, lo: number, hi: number): number {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
 export function identity(): Mat4 {
     return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 }

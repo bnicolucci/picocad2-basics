@@ -1,5 +1,5 @@
 import { type Camera, createCamera } from './lib/camera';
-import { compose } from './lib/math';
+import { clamp, compose } from './lib/math';
 import type { Instance, ModelHandle } from './lib/renderer';
 
 // --- Room / world constants (world units) ---------------------------------
@@ -32,10 +32,6 @@ const ROOMS: Record<string, RoomDef> = {
 };
 
 type Handles = Record<string, ModelHandle>;
-
-function clamp(v: number, lo: number, hi: number): number {
-    return v < lo ? lo : v > hi ? hi : v;
-}
 
 export class Game {
     camera: Camera;
