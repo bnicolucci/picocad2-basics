@@ -1,5 +1,5 @@
 import { compose } from '../lib/math';
-import type { Instance } from '../lib/renderer';
+import type { Instance, UvTransform } from '../lib/renderer';
 import { clampToRoom } from './map';
 import type { Input, World } from './world';
 
@@ -19,6 +19,7 @@ export type Player = {
     attackTimer: number; // seconds the current swing stays active
     attackCooldown: number; // seconds until able to attack again
     swingId: number; // increments per swing, so each enemy is hit once per swing
+    uv?: UvTransform; // optional per-instance texture tile/repeat
 };
 
 export function createPlayer(): Player {
@@ -70,6 +71,7 @@ export function playerInstance(w: World, p: Player): Instance {
     return {
         model: w.handles[p.model],
         matrix: compose({ x: p.x, y: -1.2, z: p.z }, { x: 0, y: p.facing, z: 0 }, { x: 1, y: 1, z: 1 }),
+        uv: p.uv,
     };
 }
 

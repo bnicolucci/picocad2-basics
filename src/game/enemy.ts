@@ -1,5 +1,5 @@
 import { compose } from '../lib/math';
-import type { Instance } from '../lib/renderer';
+import type { Instance, UvTransform } from '../lib/renderer';
 import { clampToRoom, roomEnemySpawns } from './map';
 import type { World } from './world';
 
@@ -16,6 +16,7 @@ export type Enemy = {
     hp: number;
     hitSwing: number; // id of the last swing that damaged this enemy (once per swing)
     timer: number; // wander: seconds until next heading change
+    uv?: UvTransform; // optional per-instance texture tile/repeat
 };
 
 export function createEnemy(kind: EnemyKind, x: number, z: number): Enemy {
@@ -67,5 +68,6 @@ export function enemyInstance(w: World, e: Enemy): Instance {
     return {
         model: w.handles[e.model],
         matrix: compose({ x: e.x, y: 0.5, z: e.z }, { x: 0, y: e.facing, z: 0 }, { x: 1, y: 1, z: 1 }),
+        uv: e.uv,
     };
 }
