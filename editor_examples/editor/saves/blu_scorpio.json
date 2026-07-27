@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "file": "scorpio",
+      "isMulti": false,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "ecsComponents": [
+    {
+      "type": "control_player",
+      "move": false,
+      "yaw": false,
+      "pitch": false
+    }
+  ],
+  "colliderBodies": [
+    {
+      "id": "pb:0",
+      "colliderShape": "box",
+      "length": 1,
+      "width": 1,
+      "height": 1,
+      "radius": 0.5,
+      "position": [
+        0,
+        0.5,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        3.5,
+        1,
+        1.5
+      ]
+    }
+  ]
+}

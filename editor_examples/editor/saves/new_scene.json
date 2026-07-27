@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "objects": [],
+  "cameras": [
+    {
+      "name": "camera_1",
+      "target": [
+        0,
+        1.4,
+        0
+      ],
+      "distance": 15,
+      "yaw": 2.286086,
+      "pitch": 0.276138
+    }
+  ],
+  "activeCamera": "camera_1"
+}

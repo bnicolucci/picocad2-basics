@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "file": "mesh_cube",
+      "isMulti": false,
+      "position": [
+        0,
+        1,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        2,
+        1
+      ],
+      "uvSpec": {
+        "u": 1,
+        "v": 1,
+        "tileSize": 16
+      }
+    },
+    {
+      "file": "mesh_cube",
+      "isMulti": false,
+      "position": [
+        -1.5,
+        0.5,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        2,
+        1,
+        1
+      ],
+      "uvSpec": {
+        "u": 1,
+        "v": 1,
+        "tileSize": 16
+      }
+    }
+  ]
+}

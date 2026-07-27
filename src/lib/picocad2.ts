@@ -2,6 +2,8 @@
 // `graph` node tree. Each node may hold a mesh (vertices + n-gon faces) and a
 // local transform, plus child nodes.
 
+import { decodePicoCad2Compact, PICO_CAD2_COMPACT_PREFIX } from './picocad2_compact';
+
 export type PicoCad2Color = [number, number, number];
 
 export type PicoCad2Texture = {
@@ -10,8 +12,46 @@ export type PicoCad2Texture = {
     transparent_color?: number;
     shade_pal_1?: number[];
     shade_pal_2?: number[];
+    background_color?: number;
     width?: number;
     height?: number;
+};
+
+// One motion segment from a node's `motions.tracks`. Times/positions are in
+// seconds on the clip timeline; `delta` units match `prop` (world units for
+// pos, turns for rot, scale factor for scale). `tex` segments scroll a face's
+// UVs by `step` pixels per frame. Kept verbatim-shaped so extracted clips are
+// byte-faithful to the picoCAD2 export.
+export type PicoCad2MotionSegment = {
+    axises?: readonly string[];
+    prop?: string; // 'pos' | 'rot' | 'scale' | 'visible' | 'tex'
+    curve?: string;
+    start?: number;
+    stop?: number;
+    delta?: number;
+    pingpong?: boolean;
+    times?: number;
+    frames?: number;
+    step?: number;
+    face_id?: number;
+    return_uv?: boolean;
+    icon?: number;
+};
+
+// A named animation clip extracted from a "<mesh>-anim-<name>.txt" export:
+// just the animated nodes' tracks, so one base model + N tiny clips replaces
+// N full model copies.
+// Readonly so `as const` generated registries satisfy it directly.
+export type MotionTracks = readonly (readonly PicoCad2MotionSegment[])[];
+
+export type PicoCadAnimationClip = {
+    /** node name -> that node's 4-slot motions.tracks, verbatim from the source export. */
+    tracks: Record<string, MotionTracks>;
+    /** Source model's texture size — converts `tex` pixel offsets to UV deltas. */
+    textureWidth: number;
+    textureHeight: number;
+    /** Full timeline length in seconds (picoCAD2's motion_duration). */
+    motionDuration: number;
 };
 
 export type PicoCad2Face = {
@@ -21,6 +61,9 @@ export type PicoCad2Face = {
     texture?: boolean;
     notex?: boolean;
     no_shade?: boolean;
+    double_sided?: boolean;
+    dbl?: boolean;
+    render_first?: boolean;
 };
 
 export type PicoCad2Node = {
@@ -32,17 +75,18 @@ export type PicoCad2Node = {
         scale?: { x?: number; y?: number; z?: number };
     };
     mesh?: { vertices?: number[]; faces?: PicoCad2Face[] };
+    motions?: { tracks?: PicoCad2MotionSegment[][] };
     children?: PicoCad2Node[];
 };
 
 export type PicoCad2Data = {
-    metadata?: { name?: string };
+    metadata?: { name?: string; motion_duration?: number; export_settings?: { speed?: number } };
     texture?: PicoCad2Texture;
     graph?: PicoCad2Node;
 };
 
 export function parsePicoCad2(text: string): PicoCad2Data {
-    return JSON.parse(text) as PicoCad2Data;
+    return text.startsWith(PICO_CAD2_COMPACT_PREFIX) ? decodePicoCad2Compact(text) : (JSON.parse(text) as PicoCad2Data);
 }
 
 function channelToByte(value: number): number {
@@ -97,4 +141,53 @@ export function buildTexture(data: PicoCad2Data): BuiltTexture {
     }
 
     return { width, height, indexPixels, palettePixels, transparentIndex };
+}
+
+export type GraphBounds = {
+    centerX: number;
+    centerY: number;
+    centerZ: number;
+    sizeX: number;
+    sizeY: number;
+    sizeZ: number;
+};
+
+// Bounding box of every mesh vertex in the graph, applying node pos + scale
+// (rotation ignored — fine for framing a camera on the model).
+export function computeGraphBounds(graph: PicoCad2Node): GraphBounds | null {
+    const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    const walk = (node: PicoCad2Node, ox: number, oy: number, oz: number, sx: number, sy: number, sz: number): void => {
+        const t = node.transform;
+        const nx = ox + (t?.pos?.x ?? 0) * sx;
+        const ny = oy + (t?.pos?.y ?? 0) * sy;
+        const nz = oz + (t?.pos?.z ?? 0) * sz;
+        const nsx = sx * (t?.scale?.x ?? 1);
+        const nsy = sy * (t?.scale?.y ?? 1);
+        const nsz = sz * (t?.scale?.z ?? 1);
+        const verts = node.mesh?.vertices;
+        if (verts) {
+            for (let i = 0; i < verts.length; i += 3) {
+                const wx = nx + (verts[i] ?? 0) * nsx;
+                const wy = ny + (verts[i + 1] ?? 0) * nsy;
+                const wz = nz + (verts[i + 2] ?? 0) * nsz;
+                if (wx < b.minX) b.minX = wx;
+                if (wx > b.maxX) b.maxX = wx;
+                if (wy < b.minY) b.minY = wy;
+                if (wy > b.maxY) b.maxY = wy;
+                if (wz < b.minZ) b.minZ = wz;
+                if (wz > b.maxZ) b.maxZ = wz;
+            }
+        }
+        for (const child of node.children ?? []) walk(child, nx, ny, nz, nsx, nsy, nsz);
+    };
+    walk(graph, 0, 0, 0, 1, 1, 1);
+    if (!Number.isFinite(b.minX)) return null;
+    return {
+        centerX: (b.minX + b.maxX) * 0.5,
+        centerY: (b.minY + b.maxY) * 0.5,
+        centerZ: (b.minZ + b.maxZ) * 0.5,
+        sizeX: b.maxX - b.minX,
+        sizeY: b.maxY - b.minY,
+        sizeZ: b.maxZ - b.minZ,
+    };
 }

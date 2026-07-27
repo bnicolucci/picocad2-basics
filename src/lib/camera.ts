@@ -1,43 +1,5 @@
 import { lookAt, type Mat4, multiply, perspective } from './math';
-
-export type Camera = {
-    target: [number, number, number];
-    yaw: number; // radians around Y
-    pitch: number; // radians up/down
-    distance: number;
-    fovYRadians: number;
-    near: number;
-    far: number;
-    up: [number, number, number];
-};
-
-export function createCamera(partial: Partial<Camera> = {}): Camera {
-    return {
-        target: partial.target ?? [0, 2, 0],
-        yaw: partial.yaw ?? 0.7,
-        pitch: partial.pitch ?? 0.35,
-        distance: partial.distance ?? 11,
-        fovYRadians: partial.fovYRadians ?? (60 * Math.PI) / 180,
-        near: partial.near ?? 0.1,
-        far: partial.far ?? 300,
-        up: partial.up ?? [0, 1, 0],
-    };
-}
-
-export function cameraEye(cam: Camera): [number, number, number] {
-    const cp = Math.cos(cam.pitch);
-    return [
-        cam.target[0] + cam.distance * cp * Math.sin(cam.yaw),
-        cam.target[1] + cam.distance * Math.sin(cam.pitch),
-        cam.target[2] + cam.distance * cp * Math.cos(cam.yaw),
-    ];
-}
-
-export function viewProjection(cam: Camera, aspect: number): Mat4 {
-    const proj = perspective(cam.fovYRadians, aspect, cam.near, cam.far);
-    const view = lookAt(cameraEye(cam), cam.target, cam.up);
-    return multiply(proj, view);
-}
+import { Vector3 } from './object3d';
 
 // The light is a headlight fixed in view space (slightly above the camera),
 // rotated into world space each frame. This is what gives picoCAD its checker
@@ -47,8 +9,7 @@ const LIGHT_VIEW: [number, number, number] = (() => {
     return [0, -0.3 / l, -1 / l];
 })();
 
-export function cameraLightDir(cam: Camera): [number, number, number] {
-    const v = lookAt(cameraEye(cam), cam.target, cam.up);
+function headlightFromView(v: Mat4): [number, number, number] {
     const [lx, ly, lz] = LIGHT_VIEW;
     // world = R^T * lightView (view rotation is orthonormal, so transpose = inverse).
     const x = v[0] * lx + v[1] * ly + v[2] * lz;
@@ -56,4 +17,39 @@ export function cameraLightDir(cam: Camera): [number, number, number] {
     const z = v[8] * lx + v[9] * ly + v[10] * lz;
     const len = Math.hypot(x, y, z) || 1;
     return [x / len, y / len, z / len];
+}
+
+// The simple-API camera: place it with `camera.position.set(...)`, aim it with
+// `camera.lookAt(...)`. Aspect comes from the canvas each frame, so it is not
+// a constructor argument.
+export class PerspectiveCamera {
+    readonly position = new Vector3(0, 5, 10);
+    readonly target = new Vector3(0, 0, 0);
+    fov: number; // degrees
+    near: number;
+    far: number;
+
+    constructor(fov = 60, near = 0.1, far = 100) {
+        this.fov = fov;
+        this.near = near;
+        this.far = far;
+    }
+
+    lookAt(x: number, y: number, z: number): void {
+        this.target.set(x, y, z);
+    }
+
+    private view(): Mat4 {
+        const p = this.position;
+        const t = this.target;
+        return lookAt([p.x, p.y, p.z], [t.x, t.y, t.z], [0, 1, 0]);
+    }
+
+    viewProjection(aspect: number): Mat4 {
+        return multiply(perspective((this.fov * Math.PI) / 180, aspect, this.near, this.far), this.view());
+    }
+
+    lightDir(): [number, number, number] {
+        return headlightFromView(this.view());
+    }
 }

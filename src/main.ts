@@ -1,65 +1,62 @@
-import { draw, init, update } from './game/game';
-import { createWorld } from './game/world';
-import { cameraLightDir, viewProjection } from './lib/camera';
-import { buildModel } from './lib/model';
-import { type ModelHandle, Renderer } from './lib/renderer';
+import { loadAnimationClips } from './assets/models/animations';
+import pigText from './assets/models/pig.txt?raw';
+import thinktankText from './assets/models/thinktank.txt?raw';
+import { playClip } from './lib/animator';
+import { PicoCad2Loader } from './lib/loader';
+import type { Object3D } from './lib/object3d';
+import { cube, plane, sphere } from './primitives';
+import { camera, run, scene } from './run';
 
-const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
-const renderer = new Renderer(canvas);
+let pig: Object3D;
+let box: Object3D;
+let ball: Object3D;
 
-// Load every primitive and upload it once; key handles by file name (mesh_cube, ...).
-const primitiveTexts = import.meta.glob('./assets/primitives/*.txt', {
-    query: '?raw',
-    import: 'default',
-    eager: true,
-}) as Record<string, string>;
+function init(): void {
+    scene.background = '#1d2b53';
+    camera.position.set(0, 6, 11);
+    camera.lookAt(0, 1.5, 0);
 
-const handles: Record<string, ModelHandle> = {};
-for (const [path, text] of Object.entries(primitiveTexts)) {
-    const name = path.split('/').pop()!.replace('.txt', '');
-    const model = buildModel(text);
-    handles[name] = renderer.upload(model.meshes, model.texture);
+    const floor = plane({ uv: { repeatU: 10, repeatV: 10 } });
+    floor.scale.set(14, 1, 14);
+    scene.add(floor);
+
+    pig = new PicoCad2Loader().parse(pigText).instantiate();
+    pig.position.set(0, 0, 0);
+    pig.scale.set(0.25, 0.25, 0.25);
+    scene.add(pig);
+    void loadAnimationClips('pig').then((clips) => {
+        if (clips.bounce) playClip(pig, clips.bounce);
+    });
+
+    box = cube({ uv: { tile: { u: 2, v: 2 } } });
+    box.position.set(-4.5, 1.5, 0);
+    scene.add(box);
+
+    ball = sphere({ color: 4 });
+    ball.position.set(4.5, 0.5, 0);
+    scene.add(ball);
+
+    // A base model + its extracted clip registry: thinktank.txt carries the
+    // mesh once; thinktank_animations.ts carries just the motion tracks.
+    const tank = new PicoCad2Loader().parse(thinktankText).instantiate();
+    tank.position.set(0, 0, -4.5);
+    scene.add(tank);
+    void loadAnimationClips('thinktank').then((clips) => {
+        if (clips.shoot) playClip(tank, clips.shoot);
+    });
 }
 
-// --- Input: a set of currently-held keys -----------------------------------
-const keys = new Set<string>();
-window.addEventListener('keydown', (e) => {
-    keys.add(e.key.toLowerCase());
-    if (e.key.startsWith('Arrow')) e.preventDefault();
+function update(dt: number, t: number): void {
+    pig.rotation.y = t * 0.6;
+    box.rotation.x += dt;
+    box.rotation.y += dt * 2;
+    ball.position.y = 0.5 + Math.abs(Math.sin(t * 3)) * 1.5;
+}
+
+run({
+    width: 800,
+    height: 600,
+    retroScale: 0.5,
+    init,
+    update,
 });
-window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-
-// --- init / update / draw loop ---------------------------------------------
-const world = createWorld(handles);
-init(world);
-
-const hud = document.querySelector<HTMLDivElement>('#hud')!;
-function drawHud(): void {
-    const p = world.player;
-    const hearts = '♥'.repeat(p.hp) + '♡'.repeat(p.maxHp - p.hp);
-    hud.textContent = `${hearts}   enemies ${world.enemies.length}`;
-}
-
-// The camera is fixed (never moves), so its view-projection/light only need
-// to be recomputed when the canvas aspect ratio changes (e.g. window resize).
-let cachedAspect = renderer.aspect;
-let viewProj = viewProjection(world.camera, cachedAspect);
-const lightDir = cameraLightDir(world.camera);
-
-let last = performance.now();
-function frame(now: number): void {
-    const dt = Math.min((now - last) / 1000, 0.05);
-    last = now;
-
-    update(world, dt, keys);
-    if (renderer.aspect !== cachedAspect) {
-        cachedAspect = renderer.aspect;
-        viewProj = viewProjection(world.camera, cachedAspect);
-    }
-    renderer.render(viewProj, lightDir, draw(world));
-    drawHud();
-    requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
-
-Object.assign(window as unknown as Record<string, unknown>, { world });

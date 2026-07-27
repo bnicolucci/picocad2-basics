@@ -39,6 +39,8 @@ uniform sampler2D u_paletteTexture;
 uniform vec3 u_lightDir;
 uniform float u_ambient;
 uniform float u_transparentIndex;
+// >= 0: draw every face in this flat (still shaded) palette colour.
+uniform float u_colorOverride;
 
 // Per-instance UV atlas transform. u_uvSrc is the model's own UV rect
 // (origin.xy, size.zw); u_uvDst is the target tile rect. Sampled UVs are
@@ -63,7 +65,9 @@ void main() {
   bool noTex = (flags & 2) != 0;
 
   float colorIndex = v_colorIndex;
-  if (!noTex) {
+  if (u_colorOverride >= 0.0) {
+    colorIndex = u_colorOverride;
+  } else if (!noTex) {
     colorIndex = floor(texture(u_indexTexture, applyUv(v_uv)).r * 255.0 + 0.5);
     if (abs(colorIndex - u_transparentIndex) < 0.5) discard;
   }
@@ -102,9 +106,10 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 }
 
 // Internal render resolution as a fraction of the displayed canvas size.
-const RETRO_SCALE = 0.5;
+// Mutable so it can be dialed in live (`retro.scale = 0.25` in the console).
+export const retro = { scale: 0.5 };
 
-type DrawMesh = { vao: WebGLVertexArrayObject; count: number; localMatrix: Mat4 };
+type DrawMesh = { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; count: number; localMatrix: Mat4 };
 
 // An uploaded model: its per-node draw calls plus its own textures.
 type UploadedModel = {
@@ -127,8 +132,17 @@ export type UvTransform = {
 };
 
 // One thing to draw this frame: which uploaded model, where, and how its
-// texture is mapped.
-export type Instance = { model: ModelHandle; matrix: Mat4; uv?: UvTransform };
+// texture is mapped. The scene layer additionally supplies per-mesh world
+// matrices (`null` = that mesh is hidden this frame), a flat palette-colour
+// override, and pending vertex rewrites from UV-scroll animation.
+export type Instance = {
+    model: ModelHandle;
+    matrix: Mat4;
+    uv?: UvTransform;
+    color?: number;
+    meshMatrices?: (Mat4 | null)[];
+    updates?: { meshIndex: number; vertices: Float32Array }[];
+};
 
 // Opaque index into the renderer's uploaded-model list.
 export type ModelHandle = number;
@@ -160,7 +174,7 @@ export class Renderer {
         this.program = program;
         const uniformNames = [
             'u_viewProj', 'u_model', 'u_indexTexture', 'u_paletteTexture', 'u_lightDir', 'u_ambient', 'u_transparentIndex',
-            'u_uvSrc', 'u_uvDst', 'u_uvRepeat', 'u_useUv',
+            'u_uvSrc', 'u_uvDst', 'u_uvRepeat', 'u_useUv', 'u_colorOverride',
         ];
         for (const name of uniformNames) {
             this.u[name] = gl.getUniformLocation(program, name);
@@ -180,7 +194,7 @@ export class Renderer {
             const vao = gl.createVertexArray()!;
             gl.bindVertexArray(vao);
 
-            const vbo = gl.createBuffer();
+            const vbo = gl.createBuffer()!;
             gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
             gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.STATIC_DRAW);
 
@@ -200,7 +214,7 @@ export class Renderer {
             gl.enableVertexAttribArray(4);
             gl.vertexAttribPointer(4, 1, gl.FLOAT, false, stride, 9 * 4);
 
-            drawMeshes.push({ vao, count: mesh.indices.length, localMatrix: mesh.localMatrix });
+            drawMeshes.push({ vao, vbo, count: mesh.indices.length, localMatrix: mesh.localMatrix });
         }
 
         gl.bindVertexArray(null);
@@ -238,20 +252,24 @@ export class Renderer {
         return tex;
     }
 
+    // Clear colour as [r, g, b] in 0..1. The scene layer sets this from
+    // `scene.background`.
+    background: [number, number, number] = [0.06, 0.08, 0.09];
+
     render(viewProj: Mat4, lightDir: [number, number, number], instances: Instance[]): void {
         const gl = this.gl;
         // Render at a fraction of display resolution and let CSS upscale it
         // (image-rendering: pixelated) for the chunky retro look.
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr * RETRO_SCALE));
-        const h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr * RETRO_SCALE));
+        const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr * retro.scale));
+        const h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr * retro.scale));
         if (this.canvas.width !== w || this.canvas.height !== h) {
             this.canvas.width = w;
             this.canvas.height = h;
         }
 
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        gl.clearColor(0.06, 0.08, 0.09, 1);
+        gl.clearColor(this.background[0], this.background[1], this.background[2], 1);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         gl.useProgram(this.program);
@@ -287,14 +305,46 @@ export class Renderer {
             } else {
                 gl.uniform1i(this.u.u_useUv, 0);
             }
+            gl.uniform1f(this.u.u_colorOverride, inst.color ?? -1);
 
-            for (const mesh of model.meshes) {
-                gl.uniformMatrix4fv(this.u.u_model, false, multiply(inst.matrix, mesh.localMatrix));
+            if (inst.updates) {
+                for (const { meshIndex, vertices } of inst.updates) {
+                    const mesh = model.meshes[meshIndex];
+                    if (!mesh) continue;
+                    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+                    gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+                }
+            }
+
+            for (let i = 0; i < model.meshes.length; i++) {
+                const mesh = model.meshes[i];
+                let matrix: Mat4;
+                if (inst.meshMatrices) {
+                    const m = inst.meshMatrices[i];
+                    if (!m) continue;
+                    matrix = m;
+                } else {
+                    matrix = multiply(inst.matrix, mesh.localMatrix);
+                }
+                gl.uniformMatrix4fv(this.u.u_model, false, matrix);
                 gl.bindVertexArray(mesh.vao);
                 gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
             }
         }
         gl.bindVertexArray(null);
+    }
+
+    // Upload-once cache for models built by the loader: the same Model object
+    // always maps to the same handle on this renderer.
+    private handleCache = new WeakMap<object, ModelHandle>();
+
+    handleFor(model: { meshes: GpuMesh[]; texture: BuiltTexture }): ModelHandle {
+        let handle = this.handleCache.get(model);
+        if (handle === undefined) {
+            handle = this.upload(model.meshes, model.texture);
+            this.handleCache.set(model, handle);
+        }
+        return handle;
     }
 
     get aspect(): number {

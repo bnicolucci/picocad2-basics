@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "file": "pig",
+      "isMulti": false,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "paletteOverride": "st16Natural"
+    }
+  ],
+  "colliderBodies": [
+    {
+      "id": "cb:0",
+      "colliderShape": "sphere",
+      "length": 1,
+      "width": 1,
+      "height": 1,
+      "radius": 2.5,
+      "position": [
+        0,
+        1.7999999999999998,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ]
+}

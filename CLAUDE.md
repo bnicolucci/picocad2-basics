@@ -1,130 +1,124 @@
-# picoCAD2 minimal — a tiny top-down game on a minimal WebGL2 engine
+# picoCAD2 minimal — a tiny WebGL2 framework for picoCAD2 models
 
-A small Zelda-style room crawler built on a bare-bones picoCAD2 renderer. The
-engine (`src/lib/`) parses picoCAD2 `.txt` models, builds GPU meshes, and draws
-them with a perspective camera — no scene graph, ECS, editor, or physics. The
-game (`src/game/`) is written PICO-8 style: `init` / `update` / `draw` over one
-`World` object, built entirely from primitive shapes.
+A zero-dependency framework for making small retro 3D scenes/games from picoCAD2
+models, with a deliberately simple, beginner-friendly coding style: import the
+shared `scene`/`camera`, build things in `init`, move them in `update`. The
+engine (`src/lib/`) parses picoCAD2 `.txt` models, keeps their node graphs live,
+and draws them palette-shaded at chunky retro resolution.
 
-**See [ARCHITECTURE.md](ARCHITECTURE.md)** for the full developer guide: file
-layout, how to add features, and how to evolve toward ECS. This file is the
-quick reference.
+The old Zelda-style demo game was removed (recoverable from git history, e.g.
+commit `60a3d51`). `src/main.ts` is now the demo scene and the reference for how
+code here should look.
+
+**See [ARCHITECTURE.md](ARCHITECTURE.md)** for the developer guide. This file is
+the quick reference.
 
 ## Package manager
 Use **bun** / **bunx**. Never npm/npx.
 - Install: `bun install`
 - Dev server: `bun run dev`
+- Build: `bun run build`
 - Type-check: `bunx tsc --noEmit`
 
 ## Code style
 - No comments unless the WHY is non-obvious
 - Prefer targeted edits over rewrites
 - No premature abstractions
+- New code follows `src/main.ts`'s shape: no renderer/matrix/WebGL calls in user
+  code — objects, `scene.add`, `run({ init, update })`
 
 ## Layout
 
 ```
 src/
-  main.ts        app entry: uploads primitives, tracks keys, runs init/update/draw
-  game/          game logic (PICO-8 style)
-    world.ts     World state bag + createWorld
-    game.ts      init(world) / update(world, dt, input) / draw(world)
-    player.ts    Player: type, createPlayer, updatePlayer, playerInstance
-    enemy.ts     Enemy: type, createEnemy, updateEnemy, enemyInstance
-    map.ts       rooms data, geometry, clampToRoom, doorCrossed, enterRoom
-    collide.ts   resolveCollisions: circle-circle push on the XZ plane
-    combat.ts    resolveCombat: attack hits, contact damage, death/respawn
-  lib/           reusable engine core (no game logic)
-  assets/        picoCAD2 model + primitive .txt files
+  main.ts        the app (demo scene): init/update over the shared scene
+  run.ts         harness: shared scene + camera, run({ init, update }) @ 60 fps
+  primitives.ts  cube() / sphere() / plane() ... factories -> Object3D
+  editor_animation.ts  dev-only Animation editor page (editor_animation.html)
+  lib/           engine core (no app logic)
+  assets/        models + primitives (.txt), generated *_animations.ts clips
 ```
-
-Engine core lives in `src/lib/`; game code lives in `src/game/`. Each entity
-kind owns one file holding its data **and** behavior **and** how it renders
-(`createX` / `updateX` / `xInstance`) — the PICO-8 "one file per thing" shape.
 
 | File | Role |
 |---|---|
-| `src/main.ts` | Entry point. Uploads every primitive once, tracks held keys, runs the loop (`update` → `draw` → `renderer.render`). |
-| `src/game/world.ts` | `World` (the state bag: handles, camera, player, enemies, roomId, time) + `createWorld`. `Input` is a `Set` of held keys. |
-| `src/game/game.ts` | The PICO-8 contract: `init` (spawn room A), `update` (player → doors → enemies → collision → combat, in that order), `draw` (emit the `Instance[]`). |
-| `src/game/player.ts` | The player: record, WASD/arrow movement, Z/X attack (swing + `slashInstance`), health, render instance. |
-| `src/game/enemy.ts` | Enemies: `chaser` (steers at the player) / `wander` records + behavior + hp + render instance; `spawnRoomEnemies`. |
-| `src/game/map.ts` | Rooms as data (`ROOMS`): doors, props, enemy spawns. Owns geometry (`mapInstances`, cached per room; `wallSegments`), `clampToRoom`, `doorCrossed`, `enterRoom`, `roomColliders`. |
-| `src/game/collide.ts` | `resolveCollisions(w)`: circle-circle on XZ, run after movement. Props are static (push the mover out); player/enemies split the push; everyone re-clamped to the room. Entities carry a `radius`. |
-| `src/game/combat.ts` | `resolveCombat(w)`: player attack (forward arc) damages/kills enemies; enemy contact damages the player with i-frames + knockback; death respawns at room A. |
-| `src/lib/picocad2.ts` | The picoCAD2 file format: types, `parsePicoCad2`, and `buildTexture` (indexed palette → GPU index + palette textures). |
-| `src/lib/mesh.ts` | `buildModelMeshes` walks the model graph into flat interleaved GPU vertex buffers (position, uv, normal, colorIndex, faceFlags) with baked node matrices. This is the "WebGL-friendly" conversion. |
-| `src/lib/model.ts` | `buildModel(text)` → CPU-side `{ meshes, texture }` ready for `Renderer.upload()`. |
-| `src/lib/renderer.ts` | Minimal WebGL2 renderer. `upload(meshes, texture)` returns a `ModelHandle`; `render(viewProj, lightDir, instances)` draws an `Instance[]` (`{ model, matrix, uv? }`). One palette-shaded program, no AA, half-res retro upscale. Per-instance `uv: UvTransform` tiles/re-tiles the texture (see below). |
-| `src/lib/camera.ts` | Perspective camera, view-space headlight. The game drives the camera directly (fixed, no interactive controls). |
-| `src/lib/math.ts` | Column-major mat4 + quaternion helpers, `clamp`, `compose` (T·R·S), `groundTransform` (yaw-only ground-standing transform), `normalize2`/`dirTo2` (2D XZ direction helpers). |
-| `src/assets/**/*.txt` | picoCAD2 models (`model.txt`) and primitives (`primitives/mesh_*.txt`). |
+| `src/run.ts` | Exports the shared `scene` and `camera`; `run({ width, height, retroScale, init, update })` sizes the canvas, runs `init` once, then `update(dt, t)` at a locked 60 steps/s, advances animators, renders. |
+| `src/primitives.ts` | `cube({ color: 4 })`, `plane({ uv: { repeatU: 10 } })` … factories. Explicit imports + pure-annotated factories, so primitives you never call tree-shake out of the build with their model text. Geometry shared, parsed on first use. |
+| `src/lib/picocad2_compact.ts` | Compact `pc2!` wire encoding for parsed models (tuples, bit-packed face flags, defaults omitted). The `picocad-compact` build plugin in `vite.config.ts` encodes every bundled `.txt?raw` model; `parsePicoCad2` decodes transparently. Dev uses raw files. |
+| `src/lib/object3d.ts` | `Object3D` (position / rotation in radians / scale, `add`/`remove`, `getObjectByName`), `Scene` (+ `background` hex), `flattenScene` (tree → renderer `Instance[]`; the picoCAD X-mirror is applied at model roots). |
+| `src/lib/loader.ts` | `new PicoCad2Loader().parse(text)` → `PicoCadModel`; `.instantiate(look?)` returns an `Object3D` tree mirroring the picoCAD node graph. `ModelLook`: flat `color` or per-instance `uv` (tile / repeat). |
+| `src/lib/animator.ts` | `playClip(model, clip)` binds by node name; animates pos/rot/scale/visibility and `tex` UV scrolls; `clipDuration`; `advanceAnimators` (called by the run loop). Same code path in editor preview and app. |
+| `src/lib/picocad2.ts` | The picoCAD2 file format: types (incl. motion tracks + `PicoCadAnimationClip`), `parsePicoCad2`, `buildTexture`, `computeGraphBounds`. |
+| `src/lib/picocad2_animation_extract.ts` | Pure extractor: anim-export files → verbatim track copies → `generateAnimationsModule` (registry text). |
+| `src/lib/mesh.ts` | `buildModelGraph` walks a model into a live node tree + per-node GPU meshes (position, uv, normal, colorIndex, faceFlags; per-face vertex ranges for UV animation). |
+| `src/lib/renderer.ts` | Minimal WebGL2. `upload`/`handleFor` + `render(viewProj, lightDir, instances)`; per-instance uv/color-override/per-mesh matrices; palette shading with checker dither; `retro.scale` for the pixelated upscale. |
+| `src/lib/camera.ts` | `PerspectiveCamera` (`position.set` + `lookAt`) and the view-space headlight that gives the picoCAD dither look. |
+| `src/lib/animPreview.ts` | The Animation editor's single-model orbit preview. |
+| `src/lib/math.ts` | Column-major mat4 helpers: `identity`, `multiply`, `compose` (T·R·S), `perspective`, `lookAt`. |
+| `src/assets/models/animations.ts` | `loadAnimationClips(mesh)` — looks up the generated `<mesh>_animations.ts` registry. |
 
-## Game (`src/game/`)
+## The coding style
 
-A top-down-ish (angled) Zelda-style room crawler, built entirely from
-primitives, structured PICO-8 style: `init` / `update` / `draw` over a single
-`World` object (no globals — the `World` is passed in).
+`src/main.ts` is the template:
 
-- **Entities are plain records** (`Player`, `Enemy`). Each kind's file owns its
-  data, its `updateX(entity, world, dt)` behavior, and its `xInstance(world,
-  entity)` render mapping. Adding a kind = new file + wire it into
-  `update`/`draw`. (This is deliberately the light version; the ECS upgrade path
-  — `createX`→spawn blueprint, `updateX`→system — is in ARCHITECTURE.md §8.)
-- **Rooms** (`ROOMS` in `map.ts`) are data: which walls have `doors` (and where
-  they lead), a list of `props`, and an `enemies` spawn list. Rooms sit
-  at the origin; the camera is fixed and framed on the room, so entering a room
-  swaps its contents in place. `enterRoom` repositions the player at the opposite
-  doorway; `game.ts` respawns that room's enemies.
-- **Walls** are unit `mesh_cube`s scaled into segments (`wallSegments`), leaving
-  a centered gap on any wall with a door. **Floor** is a scaled `mesh_plane`.
-  **Player** is `mesh_capsule` (offset `y -1.2` so its feet sit on the floor);
-  enemies are unit-centered primitives (`y 0.5`).
-- **`clampToRoom`** keeps any `{x,z}` inside the walls but permits walking into
-  an aligned doorway; player and enemies share it. There is no scene graph —
-  `draw` returns a flat `Instance[]` ("minimal object list").
-- **Collision** (`collide.ts`) runs each frame after movement: circle-circle on
-  the XZ plane. Props push the player/enemies out; player and enemies push each
-  other apart. Colliders are approximate (a `radius` per entity), no rotation.
-- **Per-instance UV** (`Instance.uv: UvTransform`): `repeatU/V` tiles a model's
-  texture across its surface (the floor uses `repeatU: 7, repeatV: 5`); `tile`
-  re-points to a different 16px atlas tile. The renderer normalizes within each
-  model's own UV bounds (computed at upload) before repeating, so it works on
-  primitives whose UVs already sit in a specific atlas tile. The player/enemies
-  set a `uv` tile for color (blue player, red chaser, green wander); only
-  textured faces recolor — flat `notex` faces keep their color, which is why a
-  palette swap is still wanted for uniform recoloring.
-- **Combat** (`combat.ts`): player has `hp`/`maxHp`; **Z/X** (PICO-8 action
-  buttons) starts a swing
-  that stays active ~0.16s (`attackTimer`) and damages each enemy in a wide
-  forward arc once per swing (`swingId` / `enemy.hitSwing`), killing them (chaser
-  hp 2, wander hp 1). A green slash (`slashInstance`, a scaled cube) shows in
-  front during the swing. Enemy contact costs a heart with i-frames (`INVULN`) +
-  knockback; the player blinks while invulnerable. Zero HP respawns at room A. A
-  DOM `#hud` shows hearts + enemy count; `#hint` shows the controls.
-- **Open seams** (not built yet): per-instance **palette** swap (needs a small
-  palette catalog reintroduced — heavier than UV); a nicer attack visual (the
-  slash is a placeholder cube); and rooms as authored modules.
+```ts
+const box = cube({ uv: { tile: { u: 2, v: 2 } } });
+box.position.set(-4.5, 1.5, 0);
+scene.add(box);
+
+const pig = new PicoCad2Loader().parse(pigText).instantiate();
+scene.add(pig);
+
+function update(dt: number, t: number): void {
+    box.rotation.y += dt;
+}
+
+run({ width: 800, height: 600, retroScale: 0.5, init, update });
+```
+
+Objects are `Object3D`s. An instantiated model keeps its picoCAD node graph
+live, so sub-nodes can be grabbed with `getObjectByName` and animation clips can
+move them.
+
+## Animations (base model + tiny tracks file)
+
+picoCAD2 animation exports are near-full copies of the model — shipping five of
+them would duplicate the mesh five times (`thinktank-anim-shoot.txt` is ~290 KB;
+its extracted `thinktank_animations.ts` is ~1.5 KB). Instead:
+
+- **Sources**: `<mesh>-anim-<clip>.txt` (also `<mesh>_anim_<clip>.txt`) sit
+  beside the base `<mesh>.txt` in `assets/models/` (or `assets/primitives/`).
+  They are editor input only and never reach a production build.
+- **Editor**: `/editor_animation.html` (dev-only). Pick a mesh, curate which
+  clips/nodes to keep, preview on the real animator, Save. Saving regenerates
+  `src/assets/models/<mesh>_animations.ts` — just the motion tracks, verbatim —
+  via the `editor-save` middleware in `vite.config.ts`. Include/exclude state
+  round-trips out of the generated file itself.
+- **Runtime**: `loadAnimationClips('thinktank')` + `playClip(model, clips.shoot)`.
+  Clips bind by node name; the run loop advances all playing animators. `tex`
+  segments (UV scrolls, e.g. muzzle flashes) rewrite the shared vertex buffer —
+  fine for previews and one-off instances.
 
 ## Model space
 
-picoCAD2 models are X-mirrored vs. a right-handed WebGL world. `mesh.ts` applies
-that as one innermost mirror matrix per model; face normals are negated to match
-the winding flip, and the shader flips normals on back faces for lighting.
-
-## Loop & input
-
-`src/main.ts` uploads every primitive once (`import.meta.glob` over
-`assets/primitives`), builds the `World`, calls `init` once, then each frame runs
-`update(world, dt, keys)` and feeds `draw(world)` to the renderer. Held keys are
-a `Set<string>` (lowercased). The `world` is exposed on `window` for console
-poking. WASD/arrows move the player; walk through a doorway to change rooms.
+picoCAD2 models are X-mirrored vs. a right-handed WebGL world. `flattenScene`
+applies that as one mirror at each model root; face normals are negated to match
+the winding flip, and the shader flips normals on back faces for lighting. Node
+`transform.rot` in model files is radians; animation `rot` deltas are turns
+(×2π at playback).
 
 ## The format-conversion question
 
 You do **not** need a separate on-disk format (glTF, custom binary with normals,
-etc.). The picoCAD2 `.txt` is already parseable JSON; `buildModelMeshes` converts
+etc.). The picoCAD2 `.txt` is already parseable JSON; `buildModelGraph` converts
 it at load into exactly the GPU-friendly layout WebGL wants — triangulated,
-interleaved, with computed normals. That conversion is cheap and happens once at
-load, so a precomputed file would only save a few ms while adding a build step to
-keep in sync. Keep the `.txt` + the load-time build.
+interleaved, with computed normals. On-disk files stay raw/file-faithful; build
+size is handled separately by the `picocad-compact` vite plugin, which re-encodes
+bundled models with `picocad2_compact.ts` (`pc2!` prefix, decoded transparently
+by `parsePicoCad2`) at build time only.
+
+## Asset location gotcha
+
+`src/assets/primitives` is a directory **junction** into the picoCAD2 app's own
+folder (`%AppData%/Roaming/picocad2/primitives`) so fresh exports appear here
+live. Vite resolves those imports to the real path — never filter module ids by
+a `src/assets` path prefix (the compact plugin learned this the hard way).

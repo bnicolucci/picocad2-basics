@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "file": "house",
+      "isMulti": false,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ]
+}

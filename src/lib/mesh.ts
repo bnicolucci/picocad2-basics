@@ -14,15 +14,10 @@ export type GpuMesh = {
     vertices: Float32Array;
     indices: Uint32Array;
     localMatrix: Mat4;
+    // Vertex range per source face (file order), for UV-scroll animation:
+    // `tex` motion segments target faces by 1-based face_id.
+    faceVertexRanges: { start: number; count: number }[];
 };
-
-// picoCAD2 model space is X-mirrored relative to a right-handed WebGL world.
-// Applied once as the innermost transform of every model.
-function mirrorMatrix(): Mat4 {
-    const m = identity();
-    m[0] = -1;
-    return m;
-}
 
 function vec(v: { x?: number; y?: number; z?: number } | undefined, d: number): Vec3 {
     return { x: v?.x ?? d, y: v?.y ?? d, z: v?.z ?? d };
@@ -44,12 +39,17 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
     const verts = raw.vertices;
     const out: number[] = [];
     const indices: number[] = [];
+    const faceVertexRanges: { start: number; count: number }[] = [];
     let next = 0;
 
     for (const face of raw.faces) {
         const ids = face.vertex_ids ?? [];
         const uvs = face.uvs ?? [];
-        if (ids.length < 3) continue;
+        if (ids.length < 3) {
+            faceVertexRanges.push({ start: next, count: 0 });
+            continue;
+        }
+        const faceStart = next;
 
         const colorIndex = face.color ?? 0;
         const textured = face.notex !== true && face.texture !== false;
@@ -81,6 +81,7 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
                 indices.push(next++);
             }
         }
+        faceVertexRanges.push({ start: faceStart, count: next - faceStart });
     }
 
     return {
@@ -89,26 +90,46 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
         vertices: new Float32Array(out),
         indices: new Uint32Array(indices),
         localMatrix: multiply(parentMatrix, nodeLocalMatrix(node)),
+        faceVertexRanges,
     };
 }
 
-// Walks the model graph and returns a flat list of GPU meshes, each with its
-// baked placement matrix (mirror included).
-export function buildModelMeshes(data: PicoCad2Data): GpuMesh[] {
+// A model graph node kept live (not baked): local TRS stays editable so
+// animation can move nodes. `meshIndex` points into the parallel GpuMesh list.
+export type ModelNode = {
+    name: string;
+    visible: boolean;
+    pos: Vec3;
+    rot: Vec3; // radians, XYZ order (as authored in the file)
+    scale: Vec3;
+    meshIndex: number | null;
+    children: ModelNode[];
+};
+
+// Walks the model graph into a live node tree plus per-node meshes with
+// IDENTITY placement — node matrices are composed at render time from the
+// tree, so transforms (and animation) stay live. The X-mirror is applied by
+// the scene flattener at the model root.
+export function buildModelGraph(data: PicoCad2Data): { root: ModelNode; meshes: GpuMesh[] } {
     const meshes: GpuMesh[] = [];
-    const walk = (node: PicoCad2Node, parentMatrix: Mat4) => {
-        const worldLocal = multiply(parentMatrix, nodeLocalMatrix(node));
-        const mesh = buildNodeMesh(node, parentMatrix);
-        if (mesh) meshes.push(mesh);
-        for (const child of node.children ?? []) walk(child, worldLocal);
-    };
-    const graph = data.graph;
-    if (graph) {
-        for (const child of graph.children ?? []) walk(child, mirrorMatrix());
-        if (graph.mesh) {
-            const m = buildNodeMesh(graph, mirrorMatrix());
-            if (m) meshes.push(m);
+    const build = (node: PicoCad2Node): ModelNode => {
+        let meshIndex: number | null = null;
+        const mesh = buildNodeMesh(node, identity());
+        if (mesh && mesh.indices.length > 0) {
+            meshIndex = meshes.length;
+            meshes.push(mesh);
         }
-    }
-    return meshes;
+        return {
+            name: node.name ?? '',
+            visible: node.visible ?? true,
+            pos: vec(node.transform?.pos, 0),
+            rot: vec(node.transform?.rot, 0),
+            scale: vec(node.transform?.scale, 1),
+            meshIndex,
+            children: (node.children ?? []).map(build),
+        };
+    };
+    const graph = data.graph ?? {};
+    return { root: build(graph), meshes };
 }
+
