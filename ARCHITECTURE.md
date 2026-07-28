@@ -131,7 +131,9 @@ factories (unused ones tree-shake out with their model text), anim sources and
 the editor page are dev-only, and clip registries load as tiny lazy chunks. At
 build time the `picocad-compact` vite plugin re-encodes every bundled
 `.txt?raw` model via `picocad2_compact.ts` — tuple JSON, no whitespace,
-bit-packed face flags, `pc2!` prefix — and `parsePicoCad2` decodes it
-transparently. Dev always serves the raw files. Note `src/assets/primitives`
+bit-packed face flags, texture pixels base64-packed two per byte, floats
+quantized to visually-lossless precision (1e-5 units; UVs 1e-3 px), `pc2!`
+prefix — and `parsePicoCad2` decodes it transparently (a thinktank-sized model
+drops to ~29% of its raw bytes). Dev always serves the raw files. Note `src/assets/primitives`
 is a junction into the picoCAD2 app's export folder, so the plugin matches any
 `.txt?raw` id rather than filtering by path.

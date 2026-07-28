@@ -16,9 +16,15 @@
         place-items: center;
       }
 
-      /* run() sizes the canvas from its config; without one it fills the window. */
+      /* Pre-JS placeholder matching the run() config in src/main.ts, so the
+         first paint is already the right size and colour — otherwise the
+         canvas sits at the browser default (300x150) until the modules load,
+         then visibly snaps. run() re-applies the size from its config. */
       #view {
         display: block;
+        width: 800px;
+        height: 600px;
+        background: #1d2b53;
         image-rendering: pixelated;
       }
     </style>

@@ -1,12 +1,44 @@
 import type { PicoCad2Data, PicoCad2MotionSegment, PicoCad2Node } from './picocad2';
 
-// Compact wire encoding for parsed picoCAD2 models: same data, but tuples
-// instead of keyed objects, bit-packed face flags, and defaults omitted. The
-// build plugin in vite.config.ts encodes bundled `.txt?raw` models with this;
-// parsePicoCad2 transparently decodes the `pc2!` prefix at runtime. Lossless
-// for everything the engine reads — dev always uses the raw files.
+// Compact wire encoding for parsed picoCAD2 models: tuples instead of keyed
+// objects, bit-packed face flags, defaults omitted, texture pixels base64-
+// packed (2 pixels/byte), and floats quantized to visually-lossless precision.
+// The build plugin in vite.config.ts encodes bundled `.txt?raw` models with
+// this; parsePicoCad2 transparently decodes the `pc2!` prefix at runtime. Dev
+// always uses the raw files.
 
 export const PICO_CAD2_COMPACT_PREFIX = 'pc2!';
+
+// 1e5 keeps colours exact to well under 1/255 and positions to 0.00001 units;
+// UVs are texture pixels, so 1e3 is a thousandth of a pixel.
+const PRECISION = 1e5;
+const UV_PRECISION = 1e3;
+
+function round(value: number, precision = PRECISION): number {
+    return Math.round(value * precision) / precision;
+}
+
+function roundAll(values: number[] | undefined, precision = PRECISION): number[] | undefined {
+    return values?.map((value) => round(value, precision));
+}
+
+// One hex digit per pixel (4 bits) -> two pixels per byte -> base64.
+function packPixels(pixels: string): string {
+    let bytes = '';
+    for (let i = 0; i < pixels.length; i += 2) {
+        bytes += String.fromCharCode((parseInt(pixels[i], 16) << 4) | parseInt(pixels[i + 1] ?? '0', 16));
+    }
+    return btoa(bytes);
+}
+
+function unpackPixels(packed: string, pixelCount: number): string {
+    const bytes = atob(packed);
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+        hex += bytes.charCodeAt(i).toString(16).padStart(2, '0');
+    }
+    return hex.slice(0, pixelCount);
+}
 
 type PicoCad2TextureData = NonNullable<PicoCad2Data['texture']>;
 type PicoCad2Metadata = NonNullable<PicoCad2Data['metadata']>;
@@ -47,7 +79,11 @@ function metadataFromCompact(metadata: CompactMetadata): PicoCad2Data['metadata'
 
 function vecToCompact(vec: { x?: number; y?: number; z?: number } | undefined): CompactVec3 | null {
     if (!vec || (vec.x === undefined && vec.y === undefined && vec.z === undefined)) return null;
-    return [vec.x, vec.y, vec.z];
+    return [
+        vec.x === undefined ? undefined : round(vec.x),
+        vec.y === undefined ? undefined : round(vec.y),
+        vec.z === undefined ? undefined : round(vec.z),
+    ];
 }
 
 function vecFromCompact(vec: CompactVec3 | null | undefined): { x?: number; y?: number; z?: number } | undefined {
@@ -88,8 +124,8 @@ function faceFlags(face: NonNullable<NonNullable<PicoCad2Node['mesh']>['faces']>
 function meshToCompact(node: PicoCad2Node): CompactMesh | null {
     if (!node.mesh) return null;
     return [
-        node.mesh.vertices,
-        node.mesh.faces?.map((face) => [face.vertex_ids, face.uvs, face.color, faceFlags(face)]),
+        roundAll(node.mesh.vertices),
+        node.mesh.faces?.map((face) => [face.vertex_ids, roundAll(face.uvs, UV_PRECISION), face.color, faceFlags(face)]),
     ];
 }
 
@@ -146,8 +182,8 @@ export function encodePicoCad2Compact(data: PicoCad2Data): string {
 
     return `${PICO_CAD2_COMPACT_PREFIX}${JSON.stringify([
         [
-            data.texture.pixels,
-            data.texture.colors,
+            packPixels(data.texture.pixels),
+            data.texture.colors.map((color) => color.map((channel) => round(channel)) as typeof color),
             data.texture.transparent_color,
             data.texture.shade_pal_1,
             data.texture.shade_pal_2,
@@ -170,7 +206,7 @@ export function decodePicoCad2Compact(text: string): PicoCad2Data {
     return {
         metadata: metadataFromCompact(metadata),
         texture: {
-            pixels: texture[0],
+            pixels: unpackPixels(texture[0], (texture[6] ?? 128) * (texture[7] ?? 128)),
             colors: texture[1],
             transparent_color: texture[2],
             shade_pal_1: texture[3],

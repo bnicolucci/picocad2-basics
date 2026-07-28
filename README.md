@@ -67,8 +67,10 @@ The anim source files and the editor page never reach a production build.
 
 Builds stay small: primitives you never call tree-shake out (model text
 included), animation clips load as tiny lazy chunks, and every bundled model is
-re-encoded at build time with a compact `pc2!` format that the parser decodes
-transparently. The full demo — engine plus four models — is ~42 KB gzipped.
+re-encoded at build time with a compact `pc2!` format — texture pixels
+base64-packed two per byte, floats quantized to visually-lossless precision —
+that the parser decodes transparently. The full demo — engine plus five models —
+is ~33 KB gzipped.
 
 ## Project layout
 
