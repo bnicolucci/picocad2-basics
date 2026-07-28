@@ -1,7 +1,5 @@
 import { compose, identity, type Mat4, multiply } from './math';
-import type { GpuMesh } from './mesh';
-import type { BuiltTexture } from './picocad2';
-import type { Instance, Renderer, UvTransform } from './renderer';
+import type { Instance, ModelData, UvTransform } from './renderer';
 
 // A tiny three.js-shaped scene graph over the minimal renderer: objects carry
 // position / rotation (radians, XYZ) / scale, parents compose over children,
@@ -34,7 +32,7 @@ export class Vector3 {
 // the next flatten. (Vertex buffers are shared per model, so tex animation on
 // two instances of the same model shows on both — fine for previews/one-offs.)
 export type InstantiatedModel = {
-    model: { meshes: GpuMesh[]; texture: BuiltTexture };
+    model: ModelData;
     uv?: UvTransform;
     color?: number;
     pendingUpdates: Map<number, Float32Array>;
@@ -81,10 +79,6 @@ export class Object3D {
         return null;
     }
 
-    traverse(fn: (object: Object3D) => void): void {
-        fn(this);
-        for (const child of this.children) child.traverse(fn);
-    }
 }
 
 export class Scene extends Object3D {
@@ -105,9 +99,8 @@ function localMatrix(object: Object3D): Mat4 {
 }
 
 // Walk the tree, composing world matrices, and emit one Instance per model
-// root with per-mesh matrices (null = hidden). Sorted by model handle so the
-// renderer rebinds textures as little as possible.
-export function flattenScene(root: Object3D, renderer: Renderer): Instance[] {
+// root with per-mesh matrices (null = hidden).
+export function flattenScene(root: Object3D): Instance[] {
     const instances: Instance[] = [];
 
     const walk = (object: Object3D, parentWorld: Mat4, current: Instance | null): void => {
@@ -119,8 +112,7 @@ export function flattenScene(root: Object3D, renderer: Renderer): Instance[] {
         if (object.model) {
             const info = object.model;
             instance = {
-                model: renderer.handleFor(info.model),
-                matrix: world,
+                model: info.model,
                 uv: info.uv,
                 color: info.color,
                 meshMatrices: new Array<Mat4 | null>(info.model.meshes.length).fill(null),
@@ -134,12 +126,12 @@ export function flattenScene(root: Object3D, renderer: Renderer): Instance[] {
         }
 
         if (instance && object.meshIndex !== null) {
-            instance.meshMatrices![object.meshIndex] = world;
+            instance.meshMatrices[object.meshIndex] = world;
         }
 
         for (const child of object.children) walk(child, world, instance);
     };
 
     walk(root, identity(), null);
-    return instances.sort((a, b) => a.model - b.model);
+    return instances;
 }

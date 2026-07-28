@@ -77,18 +77,18 @@ export function perspective(fovYRadians: number, aspect: number, near: number, f
     return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
 }
 
-type V3 = [number, number, number];
+export type V3 = [number, number, number];
 
-function sub(a: V3, b: V3): V3 {
+export function sub(a: V3, b: V3): V3 {
     return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 }
-function cross(a: V3, b: V3): V3 {
+export function cross(a: V3, b: V3): V3 {
     return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 function dot(a: V3, b: V3): number {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
-function normalize(v: V3): V3 {
+export function normalize(v: V3): V3 {
     const len = Math.hypot(v[0], v[1], v[2]) || 1;
     return [v[0] / len, v[1] / len, v[2] / len];
 }

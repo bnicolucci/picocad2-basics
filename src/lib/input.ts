@@ -14,20 +14,25 @@ export type ControlAction = {
     gamepadButton: number; // standard mapping: 0=A 1=B 2=X 3=Y ...
 };
 
+/** How many named action buttons a game may define (PICO-8 style). */
+export const MAX_ACTIONS = 4;
+
 let actions: readonly ControlAction[] = [];
 
 const down = new Set<string>();
 const justPressed = new Set<string>();
 const padDown = new Set<number>();
 const padJustPressed = new Set<number>();
-let padMove = { x: 0, z: 0 };
+const padMove = { x: 0, z: 0 };
 
-const MOVE_KEYS = new Set([
+/** The fixed movement keys; action buttons may not rebind these. */
+export const MOVE_KEYS = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 ]);
 
-function isEditable(target: EventTarget | null): boolean {
+/** True when the event target is a form field or contentEditable element. */
+export function isEditable(target: EventTarget | null): boolean {
     const el = target as HTMLElement | null;
     return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 }
@@ -101,7 +106,8 @@ const PAD_DEADZONE = 0.25;
 export function pollGamepad(): void {
     const pad = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads()[0] : null;
     if (!pad) {
-        padMove = { x: 0, z: 0 };
+        padMove.x = 0;
+        padMove.z = 0;
         padDown.clear();
         return;
     }
@@ -111,7 +117,8 @@ export function pollGamepad(): void {
     // Standard-mapping d-pad: 12=up 13=down 14=left 15=right.
     x += (pad.buttons[15]?.pressed ? 1 : 0) - (pad.buttons[14]?.pressed ? 1 : 0);
     z += (pad.buttons[13]?.pressed ? 1 : 0) - (pad.buttons[12]?.pressed ? 1 : 0);
-    padMove = { x, z };
+    padMove.x = x;
+    padMove.z = z;
 
     for (const action of actions) {
         const isDown = pad.buttons[action.gamepadButton]?.pressed ?? false;

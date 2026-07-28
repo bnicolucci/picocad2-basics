@@ -7,6 +7,7 @@ is deliberately simple and beginner-friendly: import the shared `scene` and
 or WebGL calls in your code.
 
 ```ts
+// canvas size / aspect / colours: the PAGE config at the top of index.html
 const box = cube({ uv: { tile: { u: 2, v: 2 } } });
 box.position.set(-4.5, 1.5, 0);
 scene.add(box);
@@ -18,7 +19,7 @@ function update(dt: number, t: number): void {
     box.rotation.y += dt;
 }
 
-run({ width: 800, height: 600, retroScale: 0.5, init, update });
+run({ init, update });
 ```
 
 `src/main.ts` is the full demo — a checkered floor, spinning primitives, and

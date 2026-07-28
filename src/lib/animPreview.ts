@@ -24,8 +24,11 @@ const FOV = 60;
 
 export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
     const renderer = new Renderer(canvas);
-    renderer.background = [0.10, 0.12, 0.14];
+    // The game renders at 0.5; in a small panel that is too coarse to judge a
+    // motion by, so the preview renders sharper.
+    renderer.retroScale = 1;
     const scene = new Scene();
+    scene.background = '#1a1f24';
     const camera = new PerspectiveCamera(FOV, 0.05, 500);
     const loader = new PicoCad2Loader();
 
@@ -76,7 +79,8 @@ export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
         last = now;
         advanceAnimators(clock);
         applyOrbit();
-        renderer.render(camera.viewProjection(renderer.aspect), camera.lightDir(), flattenScene(scene, renderer));
+        renderer.setBackground(scene.background);
+        renderer.render(camera.viewProjection(renderer.aspect), camera.lightDir(), flattenScene(scene));
         requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);

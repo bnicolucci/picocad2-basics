@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
-import { encodePicoCad2Compact } from './src/lib/picocad2_compact';
+import { tryEncodePicoCad2Compact } from './src/lib/picocad2_compact';
 
 // Dev-only save endpoints for the editors: each receives generated module text
 // and writes it to its fixed destination in src/. The editor pages are absent
@@ -70,14 +70,8 @@ function picocadCompact(): Plugin {
             // picoCAD2 model (texture + graph) gets compacted.
             const match = id.match(/^(.*\.txt)\?raw$/);
             if (!match) return null;
-            const text = await readFile(match[1], 'utf8');
-            try {
-                const data = JSON.parse(text) as Parameters<typeof encodePicoCad2Compact>[0];
-                if (!data?.texture || !data?.graph) return null;
-                return `export default ${JSON.stringify(encodePicoCad2Compact(data))};`;
-            } catch {
-                return null;
-            }
+            const compact = tryEncodePicoCad2Compact(await readFile(match[1], 'utf8'));
+            return compact === null ? null : `export default ${JSON.stringify(compact)};`;
         },
     };
 }

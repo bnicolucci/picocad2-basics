@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>picoCAD2 minimal</title>
+
+    <!-- THE page config — the single source of truth. It lives here (not in a
+         JS module) so the inline script below can size and colour the canvas
+         during HTML parse, before the very first paint: modules load hundreds
+         of ms later in dev, and a config applied from one always flashes.
+         src/run.ts reads the runtime bits (retroScale, background). -->
+    <script>
+      var PAGE = {
+        width: 800,             // canvas size in CSS px; 0 both: fill window
+        height: 600,
+        retroScale: 0.5,        // pixelation: 0.25 = picoCAD2's own viewport
+        background: '#1d2b53',  // scene clear colour (and canvas placeholder)
+        pageBackground: '#111'  // page colour framing the canvas
+      };
+    </script>
+
     <style>
       html,
       body {
@@ -16,15 +32,8 @@
         place-items: center;
       }
 
-      /* Pre-JS placeholder matching the run() config in src/main.ts, so the
-         first paint is already the right size and colour — otherwise the
-         canvas sits at the browser default (300x150) until the modules load,
-         then visibly snaps. run() re-applies the size from its config. */
       #view {
         display: block;
-        width: 800px;
-        height: 600px;
-        background: #1d2b53;
         image-rendering: pixelated;
       }
 
@@ -38,11 +47,42 @@
         user-select: none;
         pointer-events: none;
       }
+      #hint:empty {
+        display: none;
+      }
     </style>
+
+    <script>
+      // Turn PAGE into CSS now, during parse, so the first paint is already
+      // the right size and colour.
+      (function (p) {
+        var css =
+          p.width && p.height
+            ? '#view{width:' + p.width + 'px;height:' + p.height + 'px}'
+            : '#view{width:100vw;height:100vh}';
+        css += '#view{background:' + p.background + '}';
+        if (p.pageBackground) css += 'body{background:' + p.pageBackground + '}';
+        var style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+      })(PAGE);
+    </script>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=2" />
   </head>
   <body>
     <canvas id="view"></canvas>
+    <script>
+      // Pre-size the drawing buffer to exactly what the renderer will use, so
+      // the first WebGL frame needs no buffer resize — otherwise the default
+      // 300x150 buffer (2:1) briefly composites stretched into the 4:3 box.
+      (function (p, c) {
+        var s = (p.retroScale || 0.5) * Math.min(window.devicePixelRatio || 1, 2);
+        var w = p.width && p.height ? p.width : innerWidth;
+        var h = p.width && p.height ? p.height : innerHeight;
+        c.width = Math.max(1, Math.floor(w * s));
+        c.height = Math.max(1, Math.floor(h * s));
+      })(PAGE, document.getElementById('view'));
+    </script>
     <div id="hint">WASD / arrows: move &nbsp;·&nbsp; Z: shoot &nbsp;·&nbsp; X: bounce</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

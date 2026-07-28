@@ -5,20 +5,15 @@ import type { PicoCadAnimationClip } from '../../lib/picocad2';
 // editor input and never reach a build.
 const REGISTRIES = import.meta.glob('./*_animations.ts') as Record<
     string,
-    () => Promise<Record<string, unknown>>
+    () => Promise<{ default?: Record<string, PicoCadAnimationClip> }>
 >;
 
-/**
- * A mesh's saved clips, keyed by clip name; empty when it has no registry.
- *
- * `generateAnimationsModule` writes exactly one export per file (the type
- * import erases), which is why taking the first one is enough.
- */
+/** A mesh's saved clips, keyed by clip name; empty when it has no registry. */
 export async function loadAnimationClips(mesh: string): Promise<Record<string, PicoCadAnimationClip>> {
     const load = REGISTRIES[`./${mesh}_animations.ts`];
     if (!load) return {};
     try {
-        return (Object.values(await load())[0] ?? {}) as Record<string, PicoCadAnimationClip>;
+        return (await load()).default ?? {};
     } catch {
         return {};
     }

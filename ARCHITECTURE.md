@@ -15,7 +15,10 @@ A zero-dependency WebGL2 framework for picoCAD2 models with a deliberately
 simple user-facing style — an app is one file shaped like `src/main.ts`:
 
 ```
-init()          runs once: set background/camera, scene.add your objects
+index.html      PAGE config: canvas size/colours/retroScale — turned into CSS
+                during HTML parse, so the first paint is already right (a
+                module-loaded config would flash)
+init()          runs once: place the camera, scene.add your objects
 update(dt, t)   runs at a locked 60 fps: move objects
 run({ init, update })
 ```
@@ -31,8 +34,9 @@ scene (Object3D tree)
   └─ flattenScene()        object3d.ts: compose world matrices down the tree,
                            X-mirror at model roots → Instance[] (per model:
                            per-mesh matrices, uv/color look, vertex updates)
-      └─ renderer.render() renderer.ts: palette-shaded draw at retro.scale
-                           resolution, CSS-upscaled with image-rendering: pixelated
+      └─ renderer.render() renderer.ts: upload-on-first-sight + sort by model,
+                           palette-shaded draw at retroScale resolution,
+                           CSS-upscaled with image-rendering: pixelated
 ```
 
 Before rendering, the run loop calls `advanceAnimators(t)` — every playing
@@ -60,7 +64,7 @@ src/
     animPreview.ts  the editor's orbit-camera single-model preview
     picocad2_animation_extract.ts  pure clip extractor + registry generator
     picocad2_compact.ts  pc2! wire encoding (build plugin encodes, parse decodes)
-    renderer.ts  WebGL2: upload/handleFor, render(Instance[]), retro.scale
+    renderer.ts  WebGL2: render(Instance[]) with upload-once cache, retroScale
     camera.ts    PerspectiveCamera + view-space headlight
   assets/
     primitives/  mesh_*.txt unit shapes
@@ -78,7 +82,7 @@ particular scene.
 `PicoCad2Loader.parse` builds shared geometry once (`buildModelGraph`: one GPU
 mesh per picoCAD node, transforms NOT baked). `.instantiate(look?)` returns a
 fresh `Object3D` tree mirroring the node graph — cheap, geometry is shared and
-uploaded to the GPU on first draw (`renderer.handleFor`).
+uploaded to the GPU on first draw (the renderer's upload-once cache).
 
 Per-instance look:
 - `{ color: 4 }` — every face flat palette colour 4 (still shaded)
@@ -131,7 +135,7 @@ into compile errors.
 
 ## 8. Rendering notes
 
-- **Retro look**: render at `retro.scale` × canvas resolution, CSS-upscaled
+- **Retro look**: render at `renderer.retroScale` × canvas resolution, CSS-upscaled
   pixelated. No antialiasing (AA blends convex edges into dark hairlines).
 - **Palette shading**: fragment shader samples an index texture, then a 16×3
   palette (lit / mid / dark rows) picked by a stepped headlight term with a

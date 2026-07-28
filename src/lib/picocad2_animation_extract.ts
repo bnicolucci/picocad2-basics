@@ -1,4 +1,4 @@
-import type { PicoCad2Data, PicoCad2MotionSegment, PicoCad2Node, PicoCadAnimationClip } from './picocad2';
+import { type PicoCad2Data, type PicoCad2MotionSegment, type PicoCad2Node, type PicoCadAnimationClip, TEXTURE_SIZE_DEFAULT } from './picocad2';
 
 // Pure, DOM-free extraction of animation clips from picoCAD2
 // "<mesh>-anim-<clipName>.txt" export variants (also accepts "_anim_").
@@ -9,17 +9,21 @@ import type { PicoCad2Data, PicoCad2MotionSegment, PicoCad2Node, PicoCadAnimatio
 // picoCAD->engine mirror is applied at playback.
 
 const ANIM_INFIXES = ['-anim-', '_anim_'];
-const DEFAULT_TEXTURE_SIZE = 128;
 
 export type AnimSourceFileInfo = {
     mesh: string;
     clipName: string;
 };
 
+/** "path/to/<name>.txt" -> "<name>". */
+export function modelBaseName(path: string): string {
+    return path.split('/').pop()?.replace(/\.txt$/i, '') ?? path;
+}
+
 // "<mesh>-anim-<clipName>.txt" -> { mesh, clipName }. Returns null for names
 // that aren't animation sources (including the base model itself).
 export function parseAnimSourceFileName(fileName: string): AnimSourceFileInfo | null {
-    const base = fileName.split('/').pop()?.replace(/\.txt$/i, '') ?? fileName;
+    const base = modelBaseName(fileName);
     for (const infix of ANIM_INFIXES) {
         const idx = base.indexOf(infix);
         if (idx <= 0) continue;
@@ -61,21 +65,17 @@ export function collectAnimatedNodes(data: PicoCad2Data): AnimatedNode[] {
 export function extractClip(data: PicoCad2Data, includedNodeNames?: Iterable<string>): PicoCadAnimationClip {
     const include = includedNodeNames ? new Set(includedNodeNames) : null;
     const tracks: Record<string, PicoCad2MotionSegment[][]> = {};
-    let maxStop = 0;
     for (const { nodeName, tracks: nodeTracks } of collectAnimatedNodes(data)) {
         if (include && !include.has(nodeName)) continue;
         tracks[nodeName] = nodeTracks;
-        for (const slot of nodeTracks) {
-            for (const seg of slot) {
-                if ((seg.stop ?? 0) > maxStop) maxStop = seg.stop ?? 0;
-            }
-        }
     }
     return {
         tracks,
-        textureWidth: data.texture?.width ?? DEFAULT_TEXTURE_SIZE,
-        textureHeight: data.texture?.height ?? DEFAULT_TEXTURE_SIZE,
-        motionDuration: data.metadata?.motion_duration ?? (maxStop > 1e-4 ? maxStop : 1),
+        textureWidth: data.texture?.width ?? TEXTURE_SIZE_DEFAULT,
+        textureHeight: data.texture?.height ?? TEXTURE_SIZE_DEFAULT,
+        // 0 = no motion_duration in the export; clipDuration falls back to the
+        // tracks' last stop at playback.
+        motionDuration: data.metadata?.motion_duration ?? 0,
     };
 }
 
@@ -99,12 +99,11 @@ export function detectSharedNodes(clipsByName: Record<string, PicoCadAnimationCl
     return shared;
 }
 
-// Generate the "<mesh>_animations.ts" registry module text: exactly one export
-// named "<mesh>Animations", keyed by clip name, tracks serialized compactly.
-// The editor round-trips its include/exclude state straight out of this file
-// (nodes present here = included), so no sidecar save is needed.
+// Generate the "<mesh>_animations.ts" registry module text: the default export
+// is the registry, keyed by clip name, tracks serialized compactly. The editor
+// round-trips its include/exclude state straight out of this file (nodes
+// present here = included), so no sidecar save is needed.
 export function generateAnimationsModule(mesh: string, clipsByName: Record<string, PicoCadAnimationClip>): string {
-    const registryName = `${mesh.replace(/[^A-Za-z0-9]/g, '_')}Animations`;
     const clipEntries = Object.entries(clipsByName).map(([clipName, clip]) => {
         const trackLines = Object.entries(clip.tracks)
             .map(([nodeName, nodeTracks]) => `            ${JSON.stringify(nodeName)}: ${JSON.stringify(nodeTracks)},`)
@@ -127,7 +126,7 @@ export function generateAnimationsModule(mesh: string, clipsByName: Record<strin
         `// are included — do not hand-edit the track data here.`,
         `import type { PicoCadAnimationClip } from '../../lib/picocad2';`,
         ``,
-        `export const ${registryName} = {`,
+        `export default {`,
         clipEntries.join('\n'),
         `} as const satisfies Record<string, PicoCadAnimationClip>;`,
         ``,

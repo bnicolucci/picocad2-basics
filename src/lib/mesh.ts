@@ -1,19 +1,15 @@
-import { compose, identity, multiply, type Mat4, type Vec3 } from './math';
+import { cross, normalize, sub, type V3, type Vec3 } from './math';
 import type { PicoCad2Data, PicoCad2Node } from './picocad2';
 
-// A GPU-ready mesh: one interleaved vertex buffer plus the baked local matrix
-// that places this node inside the model. The user's model transform is applied
-// on top of localMatrix each frame (see main.ts).
+// A GPU-ready mesh: one interleaved vertex buffer. Node placement is composed
+// at render time from the live node tree (see buildModelGraph).
 //
 // Vertex layout (10 floats): position.xyz, uv.xy, normal.xyz, colorIndex, faceFlags
 export const VERTEX_FLOATS = 10;
 
 export type GpuMesh = {
-    name: string;
-    visible: boolean;
     vertices: Float32Array;
     indices: Uint32Array;
-    localMatrix: Mat4;
     // Vertex range per source face (file order), for UV-scroll animation:
     // `tex` motion segments target faces by 1-based face_id.
     faceVertexRanges: { start: number; count: number }[];
@@ -23,16 +19,7 @@ function vec(v: { x?: number; y?: number; z?: number } | undefined, d: number): 
     return { x: v?.x ?? d, y: v?.y ?? d, z: v?.z ?? d };
 }
 
-function nodeLocalMatrix(node: PicoCad2Node): Mat4 {
-    const t = node.transform;
-    return compose(vec(t?.pos, 0), vec(t?.rot, 0), vec(t?.scale, 1));
-}
-
-function cross(ax: number, ay: number, az: number, bx: number, by: number, bz: number): [number, number, number] {
-    return [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx];
-}
-
-function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
+function buildNodeMesh(node: PicoCad2Node): GpuMesh | null {
     const raw = node.mesh;
     if (!raw?.vertices?.length || !raw.faces?.length) return null;
 
@@ -60,15 +47,13 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
             const corners = [0, i + 1, i];
             const p = corners.map((c) => {
                 const vi = (ids[c] - 1) * 3;
-                return [verts[vi], verts[vi + 1], verts[vi + 2]] as [number, number, number];
+                return [verts[vi], verts[vi + 1], verts[vi + 2]] as V3;
             });
-            let [nx, ny, nz] = cross(
-                p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2],
-                p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2],
-            );
-            const len = Math.hypot(nx, ny, nz) || 1;
             // Negated to match the per-model mirror's winding flip.
-            nx = -nx / len; ny = -ny / len; nz = -nz / len;
+            const n = normalize(cross(sub(p[1], p[0]), sub(p[2], p[0])));
+            const nx = -n[0];
+            const ny = -n[1];
+            const nz = -n[2];
 
             for (let k = 0; k < corners.length; k++) {
                 const c = corners[k];
@@ -85,11 +70,8 @@ function buildNodeMesh(node: PicoCad2Node, parentMatrix: Mat4): GpuMesh | null {
     }
 
     return {
-        name: node.name ?? 'mesh',
-        visible: node.visible ?? true,
         vertices: new Float32Array(out),
         indices: new Uint32Array(indices),
-        localMatrix: multiply(parentMatrix, nodeLocalMatrix(node)),
         faceVertexRanges,
     };
 }
@@ -114,7 +96,7 @@ export function buildModelGraph(data: PicoCad2Data): { root: ModelNode; meshes: 
     const meshes: GpuMesh[] = [];
     const build = (node: PicoCad2Node): ModelNode => {
         let meshIndex: number | null = null;
-        const mesh = buildNodeMesh(node, identity());
+        const mesh = buildNodeMesh(node);
         if (mesh && mesh.indices.length > 0) {
             meshIndex = meshes.length;
             meshes.push(mesh);
@@ -132,4 +114,3 @@ export function buildModelGraph(data: PicoCad2Data): { root: ModelNode; meshes: 
     const graph = data.graph ?? {};
     return { root: build(graph), meshes };
 }
-

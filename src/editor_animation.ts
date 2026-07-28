@@ -16,6 +16,7 @@
 import { loadAnimationClips } from './assets/models/animations';
 import { createAnimPreview } from './lib/animPreview';
 import { clipDuration } from './lib/animator';
+import { restoreSavedMessage, saveGenerated, statusReporter } from './lib/editorPage';
 import { type PicoCadAnimationClip, parsePicoCad2 } from './lib/picocad2';
 import {
     type AnimatedNode,
@@ -23,9 +24,9 @@ import {
     detectSharedNodes,
     extractClip,
     generateAnimationsModule,
+    modelBaseName,
     parseAnimSourceFileName,
 } from './lib/picocad2_animation_extract';
-import { retro } from './lib/renderer';
 
 // Animation SOURCES may sit beside models or primitives; the generated
 // registries only ever live under models/.
@@ -52,19 +53,10 @@ const MODEL_FILES = import.meta.glob(
     { query: '?raw', import: 'default' },
 ) as Record<string, () => Promise<string>>;
 
-// The game renders at 0.5; in a 320px panel that is still too coarse to judge
-// a motion by, so the preview renders sharper. Page-local — the game's scale
-// is untouched.
-retro.scale = 1;
-
-function baseName(path: string): string {
-    return path.split('/').pop()?.replace(/\.txt$/i, '') ?? path;
-}
-
 // mesh name -> base model loader, across both asset folders.
 const modelLoaderByName = new Map<string, () => Promise<string>>();
 for (const [path, loader] of Object.entries(MODEL_FILES)) {
-    modelLoaderByName.set(baseName(path), loader);
+    modelLoaderByName.set(modelBaseName(path), loader);
 }
 
 // mesh -> its animation source loaders, keyed by clip name.
@@ -109,10 +101,7 @@ let playing: string | null = null;
 const preview = createAnimPreview(previewCanvas);
 let previewToken = 0;
 
-function setStatus(message: string, isError = false): void {
-    statusEl.textContent = message;
-    statusEl.classList.toggle('error', isError);
-}
+const setStatus = statusReporter(statusEl);
 
 function setPlaying(clipName: string | null): void {
     playing = clipName;
@@ -337,25 +326,13 @@ async function save(): Promise<void> {
         return;
     }
 
-    const source = generateAnimationsModule(mesh, clipsByName);
-    setStatus('Saving…');
-    try {
-        const response = await fetch('/__editor/save-animations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mesh, source }),
-        });
-        const result = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || !result.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
-        // The file we just wrote is one this page imports (the registry glob),
-        // so Vite invalidates it and reloads us — which would wipe the message.
-        // Hand it across the reload.
-        const message = `Saved ${mesh}_animations.ts (${Object.keys(clipsByName).length} clips).`;
-        sessionStorage.setItem(SAVED_MESSAGE_KEY, message);
-        setStatus(message);
-    } catch (error) {
-        setStatus(`Save failed: ${error instanceof Error ? error.message : error}`, true);
-    }
+    await saveGenerated(
+        setStatus,
+        '/__editor/save-animations',
+        { mesh, source: generateAnimationsModule(mesh, clipsByName) },
+        SAVED_MESSAGE_KEY,
+        `Saved ${mesh}_animations.ts (${Object.keys(clipsByName).length} clips).`,
+    );
 }
 
 function init(): void {
@@ -375,14 +352,9 @@ function init(): void {
     const requested = new URLSearchParams(window.location.search).get('mesh');
     const initial = requested && meshes.includes(requested) ? requested : meshes[0];
     meshSelect.value = initial;
-    void selectMesh(initial).then(() => {
-        const saved = sessionStorage.getItem(SAVED_MESSAGE_KEY);
-        if (!saved) return;
-        sessionStorage.removeItem(SAVED_MESSAGE_KEY);
-        setStatus(saved);
-    });
+    void selectMesh(initial).then(() => restoreSavedMessage(setStatus, SAVED_MESSAGE_KEY));
 }
 
 init();
 
-Object.assign(window as unknown as Record<string, unknown>, { retro, preview });
+Object.assign(window as unknown as Record<string, unknown>, { preview });

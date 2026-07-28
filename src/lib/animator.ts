@@ -1,6 +1,6 @@
 import { VERTEX_FLOATS } from './mesh';
 import type { Object3D } from './object3d';
-import type { MotionTracks, PicoCadAnimationClip } from './picocad2';
+import { type MotionTracks, type PicoCadAnimationClip, TEXTURE_SIZE_DEFAULT } from './picocad2';
 
 // Plays a PicoCadAnimationClip (a "<mesh>_animations.ts" registry entry) over
 // an instantiated model's node tree. Clips bind by node NAME; deltas are
@@ -169,8 +169,8 @@ export class PicoCadAnimator {
         this.speed = opts.speed ?? 1;
         this.startClock = opts.start ?? 0;
         this.duration = clipDuration(clip);
-        this.textureWidth = clip.textureWidth || 128;
-        this.textureHeight = clip.textureHeight || 128;
+        this.textureWidth = clip.textureWidth || TEXTURE_SIZE_DEFAULT;
+        this.textureHeight = clip.textureHeight || TEXTURE_SIZE_DEFAULT;
 
         for (const [nodeName, tracks] of Object.entries(clip.tracks)) {
             const object = root.getObjectByName(nodeName);
@@ -182,10 +182,6 @@ export class PicoCadAnimator {
             if (binding) this.bindings.push(binding);
         }
         if (this.bindings.length > 0) active.add(this);
-    }
-
-    get isPlaying(): boolean {
-        return active.has(this);
     }
 
     private bind(object: Object3D, tracks: MotionTracks): Binding | null {
@@ -232,7 +228,8 @@ export class PicoCadAnimator {
                     original: mesh.vertices,
                     work: new Float32Array(mesh.vertices),
                     ranges: mesh.faceVertexRanges,
-                    segments: texSegments,
+                    // Sorted once here; applyTex sums faces in timeline order.
+                    segments: texSegments.sort((a, b) => a.start - b.start),
                 };
             }
         }
@@ -302,9 +299,8 @@ export class PicoCadAnimator {
     private applyTex(tex: NonNullable<Binding['tex']>, beat: number): void {
         const { original, work, ranges, segments, meshIndex } = tex;
         work.set(original);
-        const sorted = [...segments].sort((a, b) => a.start - b.start);
         const accum = new Map<number, { u: number; v: number }>();
-        for (const seg of sorted) {
+        for (const seg of segments) {
             const prev = accum.get(seg.faceIndex) ?? { u: 0, v: 0 };
             const px = evalTexFramePx(seg, beat);
             accum.set(seg.faceIndex, {

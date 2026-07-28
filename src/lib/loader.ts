@@ -1,7 +1,7 @@
 import { buildModelGraph, type GpuMesh, type ModelNode } from './mesh';
 import { Object3D } from './object3d';
 import { type BuiltTexture, buildTexture, type PicoCad2Data, parsePicoCad2 } from './picocad2';
-import type { UvTransform } from './renderer';
+import type { ModelData, UvTransform } from './renderer';
 
 // How one instance of a model looks: a flat (still shaded) palette colour for
 // every face, and/or a per-instance UV transform (tile / repeat).
@@ -20,7 +20,7 @@ export class PicoCadModel {
     readonly texture: BuiltTexture;
     private readonly root: ModelNode;
     // One shared identity for the renderer's upload cache.
-    private readonly shared: { meshes: GpuMesh[]; texture: BuiltTexture };
+    private readonly shared: ModelData;
 
     constructor(data: PicoCad2Data) {
         this.data = data;

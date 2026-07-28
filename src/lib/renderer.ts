@@ -1,5 +1,4 @@
 import type { Mat4 } from './math';
-import { multiply } from './math';
 import { type GpuMesh, VERTEX_FLOATS } from './mesh';
 import type { BuiltTexture } from './picocad2';
 
@@ -105,11 +104,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
     return shader;
 }
 
-// Internal render resolution as a fraction of the displayed canvas size.
-// Mutable so it can be dialed in live (`retro.scale = 0.25` in the console).
-export const retro = { scale: 0.5 };
-
-type DrawMesh = { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; count: number; localMatrix: Mat4 };
+type DrawMesh = { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; count: number };
 
 // An uploaded model: its per-node draw calls plus its own textures.
 type UploadedModel = {
@@ -117,37 +112,46 @@ type UploadedModel = {
     indexTexture: WebGLTexture;
     paletteTexture: WebGLTexture;
     transparentIndex: number;
+    // The model texture's pixel size — tile rects are expressed against it.
+    textureWidth: number;
+    textureHeight: number;
     // The model's own UV bounding rect [minU, minV, sizeU, sizeV], used as the
     // source rect for per-instance UV transforms.
     uvBounds: [number, number, number, number];
 };
 
+// A model's shared GPU-ready data: what the loader/primitives hand out and
+// what the renderer uploads (once, cached per renderer).
+export type ModelData = { meshes: GpuMesh[]; texture: BuiltTexture };
+
 // Per-instance UV atlas transform. `repeatU/V` tiles the texture across the
 // surface; `tile` optionally re-points to a different 16px atlas tile
-// (1-based column/row). Atlas is 128px.
+// (1-based column/row) of the model's own texture.
 export type UvTransform = {
     repeatU?: number;
     repeatV?: number;
     tile?: { u: number; v: number; size?: number };
 };
 
-// One thing to draw this frame: which uploaded model, where, and how its
-// texture is mapped. The scene layer additionally supplies per-mesh world
-// matrices (`null` = that mesh is hidden this frame), a flat palette-colour
-// override, and pending vertex rewrites from UV-scroll animation.
+// One thing to draw this frame: which model, where each of its meshes goes
+// (`null` = that mesh is hidden this frame), how its texture is mapped, a flat
+// palette-colour override, and pending vertex rewrites from UV-scroll
+// animation.
 export type Instance = {
-    model: ModelHandle;
-    matrix: Mat4;
+    model: ModelData;
+    meshMatrices: (Mat4 | null)[];
     uv?: UvTransform;
     color?: number;
-    meshMatrices?: (Mat4 | null)[];
     updates?: { meshIndex: number; vertices: Float32Array }[];
 };
 
 // Opaque index into the renderer's uploaded-model list.
-export type ModelHandle = number;
+type ModelHandle = number;
 
-const ATLAS = 128;
+function hexToRgb(hex: string): [number, number, number] {
+    const n = parseInt(hex.replace('#', ''), 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
 
 export class Renderer {
     private gl: WebGL2RenderingContext;
@@ -155,6 +159,10 @@ export class Renderer {
     private u: Record<string, WebGLUniformLocation | null> = {};
     private models: UploadedModel[] = [];
     canvas: HTMLCanvasElement;
+
+    // Internal render resolution as a fraction of the displayed canvas size.
+    // Mutable so it can be dialed in live (`renderer.retroScale = 0.25`).
+    retroScale = 0.5;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -185,7 +193,7 @@ export class Renderer {
 
     // Upload a model's geometry + textures once; returns a handle to draw it
     // any number of times via render() instances.
-    upload(meshes: GpuMesh[], texture: BuiltTexture): ModelHandle {
+    private upload({ meshes, texture }: ModelData): ModelHandle {
         const gl = this.gl;
         const drawMeshes: DrawMesh[] = [];
 
@@ -214,7 +222,7 @@ export class Renderer {
             gl.enableVertexAttribArray(4);
             gl.vertexAttribPointer(4, 1, gl.FLOAT, false, stride, 9 * 4);
 
-            drawMeshes.push({ vao, vbo, count: mesh.indices.length, localMatrix: mesh.localMatrix });
+            drawMeshes.push({ vao, vbo, count: mesh.indices.length });
         }
 
         gl.bindVertexArray(null);
@@ -223,6 +231,8 @@ export class Renderer {
             indexTexture: this.makeIndexTexture(texture),
             paletteTexture: this.makePaletteTexture(texture),
             transparentIndex: texture.transparentIndex,
+            textureWidth: texture.width,
+            textureHeight: texture.height,
             uvBounds: computeUvBounds(meshes),
         });
         return this.models.length - 1;
@@ -252,17 +262,24 @@ export class Renderer {
         return tex;
     }
 
-    // Clear colour as [r, g, b] in 0..1. The scene layer sets this from
-    // `scene.background`.
-    background: [number, number, number] = [0.06, 0.08, 0.09];
+    // Clear colour, set from a hex string ('#1d2b53'); the harness passes
+    // `scene.background` every frame and the conversion is cached.
+    private background: [number, number, number] = [0, 0, 0];
+    private backgroundHex = '';
+
+    setBackground(hex: string): void {
+        if (hex === this.backgroundHex) return;
+        this.backgroundHex = hex;
+        this.background = hexToRgb(hex);
+    }
 
     render(viewProj: Mat4, lightDir: [number, number, number], instances: Instance[]): void {
         const gl = this.gl;
         // Render at a fraction of display resolution and let CSS upscale it
         // (image-rendering: pixelated) for the chunky retro look.
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr * retro.scale));
-        const h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr * retro.scale));
+        const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr * this.retroScale));
+        const h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr * this.retroScale));
         if (this.canvas.width !== w || this.canvas.height !== h) {
             this.canvas.width = w;
             this.canvas.height = h;
@@ -277,11 +294,16 @@ export class Renderer {
         gl.uniform3f(this.u.u_lightDir, lightDir[0], lightDir[1], lightDir[2]);
         gl.uniform1f(this.u.u_ambient, 0.15);
 
+        // Uploaded on first sight, then sorted by handle so texture rebinds
+        // happen once per model, not per instance.
+        const draws = instances
+            .map((inst) => ({ inst, handle: this.handleFor(inst.model) }))
+            .sort((a, b) => a.handle - b.handle);
+
         let boundModel = -1;
-        for (const inst of instances) {
-            const model = this.models[inst.model];
-            if (!model) continue;
-            if (inst.model !== boundModel) {
+        for (const { inst, handle } of draws) {
+            const model = this.models[handle];
+            if (handle !== boundModel) {
                 gl.uniform1f(this.u.u_transparentIndex, model.transparentIndex);
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, model.indexTexture);
@@ -289,14 +311,16 @@ export class Renderer {
                 gl.activeTexture(gl.TEXTURE1);
                 gl.bindTexture(gl.TEXTURE_2D, model.paletteTexture);
                 gl.uniform1i(this.u.u_paletteTexture, 1);
-                boundModel = inst.model;
+                boundModel = handle;
             }
 
             if (inst.uv) {
                 const [sx, sy, sw, sh] = model.uvBounds;
-                const size = (inst.uv.tile?.size ?? 16) / ATLAS;
+                const size = inst.uv.tile?.size ?? 16;
+                const su = size / model.textureWidth;
+                const sv = size / model.textureHeight;
                 const dst = inst.uv.tile
-                    ? [(inst.uv.tile.u - 1) * size, (inst.uv.tile.v - 1) * size, size, size]
+                    ? [(inst.uv.tile.u - 1) * su, (inst.uv.tile.v - 1) * sv, su, sv]
                     : [sx, sy, sw, sh];
                 gl.uniform1i(this.u.u_useUv, 1);
                 gl.uniform4f(this.u.u_uvSrc, sx, sy, sw, sh);
@@ -317,15 +341,9 @@ export class Renderer {
             }
 
             for (let i = 0; i < model.meshes.length; i++) {
+                const matrix = inst.meshMatrices[i];
+                if (!matrix) continue;
                 const mesh = model.meshes[i];
-                let matrix: Mat4;
-                if (inst.meshMatrices) {
-                    const m = inst.meshMatrices[i];
-                    if (!m) continue;
-                    matrix = m;
-                } else {
-                    matrix = multiply(inst.matrix, mesh.localMatrix);
-                }
                 gl.uniformMatrix4fv(this.u.u_model, false, matrix);
                 gl.bindVertexArray(mesh.vao);
                 gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
@@ -336,12 +354,12 @@ export class Renderer {
 
     // Upload-once cache for models built by the loader: the same Model object
     // always maps to the same handle on this renderer.
-    private handleCache = new WeakMap<object, ModelHandle>();
+    private handleCache = new WeakMap<ModelData, ModelHandle>();
 
-    handleFor(model: { meshes: GpuMesh[]; texture: BuiltTexture }): ModelHandle {
+    private handleFor(model: ModelData): ModelHandle {
         let handle = this.handleCache.get(model);
         if (handle === undefined) {
-            handle = this.upload(model.meshes, model.texture);
+            handle = this.upload(model);
             this.handleCache.set(model, handle);
         }
         return handle;

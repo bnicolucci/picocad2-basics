@@ -4,6 +4,9 @@
 
 import { decodePicoCad2Compact, PICO_CAD2_COMPACT_PREFIX } from './picocad2_compact';
 
+// Texture size when a model file omits width/height.
+export const TEXTURE_SIZE_DEFAULT = 128;
+
 export type PicoCad2Color = [number, number, number];
 
 export type PicoCad2Texture = {
@@ -109,8 +112,8 @@ export function buildTexture(data: PicoCad2Data): BuiltTexture {
     const tex = data.texture;
     if (!tex) throw new Error('Model has no texture');
 
-    const width = tex.width ?? 128;
-    const height = tex.height ?? 128;
+    const width = tex.width ?? TEXTURE_SIZE_DEFAULT;
+    const height = tex.height ?? TEXTURE_SIZE_DEFAULT;
     const colors = tex.colors;
     const transparentIndex = tex.transparent_color ?? -1;
 

@@ -1,4 +1,4 @@
-import type { PicoCad2Data, PicoCad2MotionSegment, PicoCad2Node } from './picocad2';
+import { type PicoCad2Data, type PicoCad2MotionSegment, type PicoCad2Node, TEXTURE_SIZE_DEFAULT } from './picocad2';
 
 // Compact wire encoding for parsed picoCAD2 models: tuples instead of keyed
 // objects, bit-packed face flags, defaults omitted, texture pixels base64-
@@ -175,23 +175,30 @@ function nodeFromCompact(node: CompactNode): PicoCad2Node {
     };
 }
 
-export function encodePicoCad2Compact(data: PicoCad2Data): string {
-    if (!data.texture || !data.graph) {
-        return JSON.stringify(data);
+// The one entry point for encoding: parse `text`, and if it is a picoCAD2
+// model (texture + graph), return the compact form; anything else -> null.
+export function tryEncodePicoCad2Compact(text: string): string | null {
+    let data: PicoCad2Data;
+    try {
+        data = JSON.parse(text) as PicoCad2Data;
+    } catch {
+        return null;
     }
+    const { texture, graph } = data;
+    if (!texture || !graph) return null;
 
     return `${PICO_CAD2_COMPACT_PREFIX}${JSON.stringify([
         [
-            packPixels(data.texture.pixels),
-            data.texture.colors.map((color) => color.map((channel) => round(channel)) as typeof color),
-            data.texture.transparent_color,
-            data.texture.shade_pal_1,
-            data.texture.shade_pal_2,
-            data.texture.background_color,
-            data.texture.width,
-            data.texture.height,
+            packPixels(texture.pixels),
+            texture.colors.map((color) => color.map((channel) => round(channel)) as typeof color),
+            texture.transparent_color,
+            texture.shade_pal_1,
+            texture.shade_pal_2,
+            texture.background_color,
+            texture.width,
+            texture.height,
         ],
-        nodeToCompact(data.graph),
+        nodeToCompact(graph),
         metadataToCompact(data.metadata),
     ])}`;
 }
@@ -206,7 +213,7 @@ export function decodePicoCad2Compact(text: string): PicoCad2Data {
     return {
         metadata: metadataFromCompact(metadata),
         texture: {
-            pixels: unpackPixels(texture[0], (texture[6] ?? 128) * (texture[7] ?? 128)),
+            pixels: unpackPixels(texture[0], (texture[6] ?? TEXTURE_SIZE_DEFAULT) * (texture[7] ?? TEXTURE_SIZE_DEFAULT)),
             colors: texture[1],
             transparent_color: texture[2],
             shade_pal_1: texture[3],

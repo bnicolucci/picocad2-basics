@@ -3,8 +3,9 @@
 // stick) is fixed by design and only displayed. Dev-only page; Save POSTs the
 // regenerated module to the editor-save middleware in vite.config.ts.
 
-import { actions as savedActions, MAX_ACTIONS } from './controls';
-import type { ControlAction } from './lib/input';
+import { actions as savedActions } from './controls';
+import { restoreSavedMessage, saveGenerated, statusReporter } from './lib/editorPage';
+import { type ControlAction, isEditable, MAX_ACTIONS, MOVE_KEYS } from './lib/input';
 
 const actionListEl = document.getElementById('action-list') as HTMLDivElement;
 const addBtn = document.getElementById('add-btn') as HTMLButtonElement;
@@ -12,7 +13,6 @@ const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
 const conflictEl = document.getElementById('conflict-note') as HTMLDivElement;
 
-const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 const SAVED_MESSAGE_KEY = 'controls-editor:saved';
 const PAD_BUTTONS = ['A (0)', 'B (1)', 'X (2)', 'Y (3)', 'LB (4)', 'RB (5)', 'LT (6)', 'RT (7)', 'Back (8)', 'Start (9)'];
 
@@ -33,10 +33,7 @@ function prettyKey(code: string): string {
     return named[code] ?? code.toUpperCase();
 }
 
-function setStatus(message: string, isError = false): void {
-    statusEl.textContent = message;
-    statusEl.classList.toggle('error', isError);
-}
+const setStatus = statusReporter(statusEl);
 
 function conflicts(): string[] {
     const problems: string[] = [];
@@ -134,8 +131,7 @@ function render(): void {
 window.addEventListener(
     'keydown',
     (event) => {
-        const tag = (event.target as HTMLElement | null)?.tagName;
-        if (tag === 'INPUT' || tag === 'SELECT') return;
+        if (isEditable(event.target)) return;
         if (listening) {
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -172,8 +168,6 @@ function generateControlsModule(list: ControlAction[]): string {
         `// here turns every stale pressed('...')/held('...') into a compile error.`,
         `import { type ControlAction, held as heldAction, move, pressed as pressedAction, setActions } from './lib/input';`,
         ``,
-        `export const MAX_ACTIONS = ${MAX_ACTIONS};`,
-        ``,
         `export const actions = [`,
         ...lines,
         `] as const satisfies readonly ControlAction[];`,
@@ -190,31 +184,14 @@ function generateControlsModule(list: ControlAction[]): string {
 }
 
 saveBtn.addEventListener('click', () => {
-    void (async () => {
-        setStatus('Saving…');
-        try {
-            const response = await fetch('/__editor/save-controls', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source: generateControlsModule(actions) }),
-            });
-            const result = (await response.json()) as { ok?: boolean; error?: string };
-            if (!response.ok || !result.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
-            // Saving rewrites src/controls.ts, which this page imports, so vite
-            // reloads us and would wipe the message — hand it across the reload.
-            const message = `Saved src/controls.ts (${actions.length} actions).`;
-            sessionStorage.setItem(SAVED_MESSAGE_KEY, message);
-            setStatus(message);
-        } catch (error) {
-            setStatus(`Save failed: ${error instanceof Error ? error.message : error}`, true);
-        }
-    })();
+    void saveGenerated(
+        setStatus,
+        '/__editor/save-controls',
+        { source: generateControlsModule(actions) },
+        SAVED_MESSAGE_KEY,
+        `Saved src/controls.ts (${actions.length} actions).`,
+    );
 });
 
 render();
-
-const savedMessage = sessionStorage.getItem(SAVED_MESSAGE_KEY);
-if (savedMessage) {
-    sessionStorage.removeItem(SAVED_MESSAGE_KEY);
-    setStatus(savedMessage);
-}
+restoreSavedMessage(setStatus, SAVED_MESSAGE_KEY);

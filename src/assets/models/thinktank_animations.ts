@@ -4,7 +4,7 @@
 // are included — do not hand-edit the track data here.
 import type { PicoCadAnimationClip } from '../../lib/picocad2';
 
-export const thinktankAnimations = {
+export default {
     "shoot": {
         textureWidth: 128,
         textureHeight: 128,

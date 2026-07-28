@@ -9,6 +9,8 @@ import type { PicoCadAnimationClip } from './lib/picocad2';
 import { cube, plane, sphere } from './primitives';
 import { camera, run, scene } from './run';
 
+// Canvas size, aspect, colours, retroScale: the PAGE config in index.html.
+
 let pig: Object3D;
 let box: Object3D;
 let ball: Object3D;
@@ -20,7 +22,6 @@ let pigAnim: PicoCadAnimator | null = null;
 let tankAnim: PicoCadAnimator | null = null;
 
 function init(): void {
-    scene.background = '#1d2b53';
     camera.position.set(0, 6, 11);
     camera.lookAt(0, 1.5, 0);
 
@@ -77,10 +78,4 @@ function update(dt: number, t: number): void {
     ball.position.y = 0.5 + Math.abs(Math.sin(t * 3)) * 1.5;
 }
 
-run({
-    width: 800,
-    height: 600,
-    retroScale: 0.5,
-    init,
-    update,
-});
+run({ init, update });

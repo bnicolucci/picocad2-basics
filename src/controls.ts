@@ -5,8 +5,6 @@
 // here turns every stale pressed('...')/held('...') into a compile error.
 import { type ControlAction, held as heldAction, move, pressed as pressedAction, setActions } from './lib/input';
 
-export const MAX_ACTIONS = 4;
-
 export const actions = [
     { name: "shoot", key: "KeyZ", gamepadButton: 0 },
     { name: "bounce", key: "KeyX", gamepadButton: 1 },
