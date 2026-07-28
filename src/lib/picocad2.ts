@@ -63,6 +63,8 @@ export type PicoCad2Face = {
     color?: number;
     texture?: boolean;
     notex?: boolean;
+    /** Flat/unlit face. picoCAD2 writes `noshade`; `no_shade` is accepted too. */
+    noshade?: boolean;
     no_shade?: boolean;
     double_sided?: boolean;
     dbl?: boolean;

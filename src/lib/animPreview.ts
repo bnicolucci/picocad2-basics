@@ -1,14 +1,12 @@
-import { advanceAnimators, type PicoCadAnimator, playClip } from './animator';
-import { PerspectiveCamera } from './camera';
+import { type PicoCadAnimator, playClip } from './animator';
+import { createEditorViewport } from './editorViewport';
 import { PicoCad2Loader } from './loader';
-import { flattenScene, type Object3D, Scene } from './object3d';
+import type { Object3D } from './object3d';
 import { computeGraphBounds, type PicoCadAnimationClip } from './picocad2';
-import { Renderer } from './renderer';
 
-// Single-model preview for the Animation editor: one renderer for the page's
-// lifetime, the model inside it swapped per selection. Drag to orbit, scroll
-// to zoom. Playback runs through the real loader + animator, so what plays
-// here is what plays in-game.
+// Single-model preview for the Animation editor: one viewport for the page's
+// lifetime, the model inside it swapped per selection. Playback runs through
+// the real loader + animator, so what plays here is what plays in-game.
 
 export type AnimPreview = {
     /** Swap in a model; false if the text failed to parse. */
@@ -20,70 +18,12 @@ export type AnimPreview = {
     stop(): void;
 };
 
-const FOV = 60;
-
 export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
-    const renderer = new Renderer(canvas);
-    // The game renders at 0.5; in a small panel that is too coarse to judge a
-    // motion by, so the preview renders sharper.
-    renderer.retroScale = 1;
-    const scene = new Scene();
-    scene.background = '#1a1f24';
-    const camera = new PerspectiveCamera(FOV, 0.05, 500);
+    const viewport = createEditorViewport(canvas, { background: '#1a1f24' });
     const loader = new PicoCad2Loader();
 
     let model: Object3D | null = null;
     let animator: PicoCadAnimator | null = null;
-
-    const orbit = { yaw: 0.7, pitch: 0.35, distance: 8, minDistance: 1, maxDistance: 40, target: { x: 0, y: 1, z: 0 } };
-
-    function applyOrbit(): void {
-        const cp = Math.cos(orbit.pitch);
-        camera.position.set(
-            orbit.target.x + orbit.distance * cp * Math.sin(orbit.yaw),
-            orbit.target.y + orbit.distance * Math.sin(orbit.pitch),
-            orbit.target.z + orbit.distance * cp * Math.cos(orbit.yaw),
-        );
-        camera.lookAt(orbit.target.x, orbit.target.y, orbit.target.z);
-    }
-
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-    canvas.addEventListener('pointerdown', (e) => {
-        dragging = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        canvas.setPointerCapture(e.pointerId);
-    });
-    canvas.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
-        orbit.yaw -= (e.clientX - lastX) * 0.01;
-        orbit.pitch = Math.min(1.5, Math.max(-1.5, orbit.pitch + (e.clientY - lastY) * 0.01));
-        lastX = e.clientX;
-        lastY = e.clientY;
-    });
-    canvas.addEventListener('pointerup', () => {
-        dragging = false;
-    });
-    canvas.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const factor = Math.exp(e.deltaY * 0.001);
-        orbit.distance = Math.min(orbit.maxDistance, Math.max(orbit.minDistance, orbit.distance * factor));
-    }, { passive: false });
-
-    let clock = 0;
-    let last = performance.now();
-    const frame = (now: number): void => {
-        clock += Math.min((now - last) / 1000, 0.1);
-        last = now;
-        advanceAnimators(clock);
-        applyOrbit();
-        renderer.setBackground(scene.background);
-        renderer.render(camera.viewProjection(renderer.aspect), camera.lightDir(), flattenScene(scene));
-        requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
 
     function stop(): void {
         animator?.stop();
@@ -92,7 +32,7 @@ export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
 
     function clear(): void {
         stop();
-        if (model) scene.remove(model);
+        if (model) viewport.scene.remove(model);
         model = null;
     }
 
@@ -102,16 +42,13 @@ export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
             try {
                 const parsed = loader.parse(text);
                 model = parsed.instantiate();
-                scene.add(model);
+                viewport.scene.add(model);
                 // Frame the orbit to the model's bounds. The mirror negates the
                 // visible X of the raw graph center; Y/Z are unchanged.
                 const b = parsed.data.graph ? computeGraphBounds(parsed.data.graph) : null;
                 if (b) {
                     const radius = Math.max(0.5, 0.5 * Math.hypot(b.sizeX, b.sizeY, b.sizeZ));
-                    orbit.target = { x: -b.centerX, y: b.centerY, z: b.centerZ };
-                    orbit.distance = (radius / Math.sin((FOV * Math.PI) / 360)) * 1.15;
-                    orbit.minDistance = Math.max(0.05, radius * 0.15);
-                    orbit.maxDistance = Math.max(orbit.distance * 4, radius * 20);
+                    viewport.frame({ x: -b.centerX, y: b.centerY, z: b.centerZ }, radius);
                 }
                 return true;
             } catch {
@@ -123,7 +60,7 @@ export function createAnimPreview(canvas: HTMLCanvasElement): AnimPreview {
         play(clip: PicoCadAnimationClip): PicoCadAnimator | null {
             if (!model) return null;
             stop();
-            animator = playClip(model, clip, { start: clock });
+            animator = playClip(model, clip, { start: viewport.clock() });
             return animator;
         },
         stop,

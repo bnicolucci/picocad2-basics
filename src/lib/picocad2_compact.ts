@@ -114,7 +114,7 @@ function faceFlags(face: NonNullable<NonNullable<PicoCad2Node['mesh']>['faces']>
     return (
         (face.texture === false ? 1 : 0) |
         (face.notex ? 2 : 0) |
-        (face.no_shade ? 4 : 0) |
+        (face.noshade || face.no_shade ? 4 : 0) |
         (face.double_sided ? 8 : 0) |
         (face.dbl ? 16 : 0) |
         (face.render_first ? 32 : 0)
@@ -139,7 +139,7 @@ function meshFromCompact(mesh: CompactMesh | null | undefined): PicoCad2Node['me
             color,
             texture: flags & 1 ? false : undefined,
             notex: flags & 2 ? true : undefined,
-            no_shade: flags & 4 ? true : undefined,
+            noshade: flags & 4 ? true : undefined,
             double_sided: flags & 8 ? true : undefined,
             dbl: flags & 16 ? true : undefined,
             render_first: flags & 32 ? true : undefined,

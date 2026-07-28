@@ -38,9 +38,14 @@ export type InstantiatedModel = {
     pendingUpdates: Map<number, Float32Array>;
 };
 
+/** An object's visible nose direction, as seen on screen ('z+' unless set). */
+export type Forward = 'x+' | 'x-' | 'y+' | 'y-' | 'z+' | 'z-';
+
 export class Object3D {
     name = '';
     visible = true;
+    /** Rest facing, folded in by faceToward (set by spawnEntity or by hand). */
+    forward: Forward = 'z+';
     readonly position = new Vector3(0, 0, 0);
     readonly rotation = new Vector3(0, 0, 0); // radians, XYZ order
     readonly scale = new Vector3(1, 1, 1);

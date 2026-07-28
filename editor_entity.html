@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entity Editor</title>
+    <link rel="stylesheet" href="/editor.css" />
+    <style>
+      body { display: block; }
+      #layout3 { display: flex; width: 100%; height: 100%; }
+
+      #sidebar {
+        width: 210px; flex-shrink: 0; background: #1c1c1c;
+        border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden;
+      }
+      #side-body { flex: 1; overflow-y: auto; padding: 7px 8px 24px; display: grid; align-content: start; gap: 8px; }
+
+      .mesh-item {
+        padding: 6px 9px; background: #222; border: 1px solid #2c2c2c; border-radius: 3px;
+        color: #aaa; font: 11px monospace; cursor: pointer; user-select: none;
+      }
+      .mesh-item:hover { background: #2a2a2a; border-color: #444; color: #ddd; }
+      .mesh-list { display: grid; gap: 2px; }
+      .btn-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+      .btn.primary { background: #2d5f38; border-color: #3c7a49; color: #dfeede; }
+      .btn.primary:hover:not(:disabled) { background: #367044; border-color: #4a8a5a; color: #eff; }
+      .btn.danger { background: #201616; border-color: #3a2a2a; color: #a77; }
+      .btn.danger:hover:not(:disabled) { background: #2a1a1a; border-color: #644; color: #d88; }
+      .field-label { color: #777; font: 10px monospace; }
+      #status.warn { color: #d2a24c; }
+
+      #viewport-wrap { flex: 1; position: relative; overflow: hidden; background: #12161b; }
+      #viewport { display: block; width: 100%; height: 100%; }
+      #view-hint {
+        position: absolute; left: 12px; bottom: 10px; z-index: 2;
+        font: 11px monospace; color: rgba(255, 255, 255, 0.28); pointer-events: none;
+      }
+      .axis-label {
+        position: absolute; font: bold 11px/1 monospace; pointer-events: none;
+        transform: translate(-50%, -50%); text-shadow: 0 0 4px #000, 0 1px 4px #000; z-index: 2;
+      }
+
+      #inspector {
+        width: 280px; flex-shrink: 0; background: #1c1c1c;
+        border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden;
+      }
+      #insp-body { flex: 1; overflow-y: auto; padding: 7px 8px 24px; display: grid; align-content: start; gap: 8px; }
+
+      .part-row {
+        display: flex; align-items: center; gap: 5px; padding: 4px 7px;
+        background: #222; border: 1px solid #2c2c2c; border-radius: 3px;
+        color: #aaa; font: 11px monospace; cursor: pointer; user-select: none;
+      }
+      .part-row:hover { background: #2a2a2a; border-color: #444; }
+      .part-row.active { background: #303030; border-color: #666; color: #eee; }
+      .part-row .part-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .part-mini {
+        min-width: 22px; min-height: 20px; padding: 0 4px; border-radius: 3px;
+        border: 1px solid #333; background: #262626; color: #999; font: 11px monospace; cursor: pointer;
+      }
+      .part-mini:hover { background: #333; color: #ddd; }
+
+      .grid4 { display: grid; grid-template-columns: 34px repeat(3, 1fr); gap: 5px; align-items: center; }
+      .grid4 label, .grid2 label { color: #777; font: 10px monospace; }
+      .grid2 { display: grid; grid-template-columns: 60px 1fr; gap: 5px; align-items: center; }
+      .num {
+        min-width: 0; width: 100%; padding: 4px 5px; background: #171717;
+        border: 1px solid #333; border-radius: 3px; color: #bbb; font: 10px monospace; outline: none;
+      }
+      .num:focus { border-color: #666; color: #eee; }
+
+      .facing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+      .facing-btn {
+        min-height: 26px; border-radius: 3px; border: 1px solid #333;
+        background: #222; color: #999; font: 11px monospace; cursor: pointer;
+      }
+      .facing-btn:hover { border-color: #555; color: #ddd; }
+      .facing-btn.active { border-color: #ffd23c; color: #ffd23c; background: #2a2717; }
+    </style>
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=2" />
+  </head>
+  <body>
+    <div id="layout3">
+      <aside id="sidebar">
+        <div class="sidebar-header">Entity Editor</div>
+        <div id="side-body">
+          <div class="section">
+            <div class="section-title">Entities</div>
+            <select id="entity-select" title="Which entity you are editing"></select>
+            <div class="btn-row2">
+              <button id="new-btn" class="btn primary" type="button">+ New</button>
+              <button id="dup-btn" class="btn" type="button">Duplicate</button>
+            </div>
+            <label class="field-label" for="entity-name">name — renames the selected entity</label>
+            <input id="entity-name" class="num" type="text" placeholder="name" spellcheck="false" autocomplete="off" />
+            <button id="delete-btn" class="btn danger" type="button">Delete selected</button>
+          </div>
+          <div class="section">
+            <div class="section-title">Primitives — click to add</div>
+            <div id="primitive-list" class="mesh-list"></div>
+          </div>
+          <div class="section">
+            <div class="section-title">Models — click to add</div>
+            <div id="model-list" class="mesh-list"></div>
+          </div>
+        </div>
+      </aside>
+
+      <div id="viewport-wrap">
+        <canvas id="viewport"></canvas>
+        <div id="view-hint">Click a mesh to add a part · drag to orbit · scroll to zoom · arrow shows forward</div>
+        <div id="axis-px" class="axis-label" style="color:#f44">+X</div>
+        <div id="axis-nx" class="axis-label" style="color:#f44">-X</div>
+        <div id="axis-pz" class="axis-label" style="color:#4af">+Z</div>
+        <div id="axis-nz" class="axis-label" style="color:#4af">-Z</div>
+      </div>
+
+      <aside id="inspector">
+        <div class="sidebar-header">Inspector</div>
+        <div id="insp-body">
+          <div class="section">
+            <button id="save-btn" class="btn" type="button">Save Entities</button>
+            <div id="status"></div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Parts</div>
+            <div id="part-list" class="mesh-list"></div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Transform</div>
+            <div class="grid4">
+              <label>Pos</label>
+              <input id="t-pos-x" class="num" type="number" step="0.1" />
+              <input id="t-pos-y" class="num" type="number" step="0.1" />
+              <input id="t-pos-z" class="num" type="number" step="0.1" />
+              <label>Rot°</label>
+              <input id="t-rot-x" class="num" type="number" step="5" />
+              <input id="t-rot-y" class="num" type="number" step="5" />
+              <input id="t-rot-z" class="num" type="number" step="5" />
+              <label>Scale</label>
+              <input id="t-scale-x" class="num" type="number" step="0.05" />
+              <input id="t-scale-y" class="num" type="number" step="0.05" />
+              <input id="t-scale-z" class="num" type="number" step="0.05" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Look</div>
+            <div class="grid2">
+              <label>Colour</label>
+              <input id="l-color" class="num" type="number" min="0" max="15" step="1" placeholder="—" />
+            </div>
+            <div class="grid4">
+              <label>Tile</label>
+              <input id="l-tile-u" class="num" type="number" min="1" step="1" placeholder="u" />
+              <input id="l-tile-v" class="num" type="number" min="1" step="1" placeholder="v" />
+              <input id="l-tile-size" class="num" type="number" min="8" step="8" placeholder="16" />
+              <label>Rpt</label>
+              <input id="l-repeat-u" class="num" type="number" min="1" step="1" placeholder="u" />
+              <input id="l-repeat-v" class="num" type="number" min="1" step="1" placeholder="v" />
+              <div></div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Facing (visible nose)</div>
+            <div class="facing-grid">
+              <button class="facing-btn" data-forward="x+" type="button">x+</button>
+              <button class="facing-btn" data-forward="y+" type="button">y+</button>
+              <button class="facing-btn" data-forward="z+" type="button">z+</button>
+              <button class="facing-btn" data-forward="x-" type="button">x-</button>
+              <button class="facing-btn" data-forward="y-" type="button">y-</button>
+              <button class="facing-btn" data-forward="z-" type="button">z-</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Collider</div>
+            <div class="grid2">
+              <label>Radius</label>
+              <input id="e-radius" class="num" type="number" min="0" step="0.05" placeholder="— (not solid)" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Tags (comma-separated)</div>
+            <input id="e-tags" class="num" type="text" placeholder="player, enemy, prop…" spellcheck="false" autocomplete="off" />
+          </div>
+        </div>
+      </aside>
+    </div>
+    <script type="module" src="/src/editor_entity.ts"></script>
+  </body>
+</html>

@@ -40,7 +40,7 @@ function buildNodeMesh(node: PicoCad2Node): GpuMesh | null {
 
         const colorIndex = face.color ?? 0;
         const textured = face.notex !== true && face.texture !== false;
-        const faceFlags = (face.no_shade ? 1 : 0) | (textured ? 0 : 2);
+        const faceFlags = (face.noshade || face.no_shade ? 1 : 0) | (textured ? 0 : 2);
 
         // Fan-triangulate the n-gon.
         for (let i = 1; i < ids.length - 1; i++) {

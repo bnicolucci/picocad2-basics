@@ -51,6 +51,9 @@ function editorSave(): Plugin {
             server.middlewares.use('/__editor/save-controls', (req, res) =>
                 handle(req, res, () => resolve(import.meta.dirname, 'src/controls.ts')),
             );
+            server.middlewares.use('/__editor/save-entities', (req, res) =>
+                handle(req, res, () => resolve(import.meta.dirname, 'src/assets/entities.ts')),
+            );
         },
     };
 }

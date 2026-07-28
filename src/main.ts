@@ -1,9 +1,8 @@
+import { spawnEntity } from './assets/entities';
 import { loadAnimationClips } from './assets/models/animations';
-import pigText from './assets/models/pig.txt?raw';
-import thinktankText from './assets/models/thinktank.txt?raw';
 import { move, pressed } from './controls';
 import { type PicoCadAnimator, playClip } from './lib/animator';
-import { PicoCad2Loader } from './lib/loader';
+import { faceToward } from './lib/entity';
 import type { Object3D } from './lib/object3d';
 import type { PicoCadAnimationClip } from './lib/picocad2';
 import { cube, plane, sphere } from './primitives';
@@ -29,9 +28,14 @@ function init(): void {
     floor.scale.set(14, 1, 14);
     scene.add(floor);
 
-    pig = new PicoCad2Loader().parse(pigText).instantiate();
-    pig.scale.set(0.25, 0.25, 0.25);
+    pig = spawnEntity('pig');
     scene.add(pig);
+
+    // An entity + its clip registry: thinktank.txt carries the mesh once;
+    // thinktank_animations.ts carries just the motion tracks.
+    tank = spawnEntity('thinktank');
+    tank.position.set(0, 0, -4.5);
+    scene.add(tank);
 
     box = cube({ uv: { tile: { u: 2, v: 2 } } });
     box.position.set(-4.5, 1.5, 0);
@@ -40,12 +44,6 @@ function init(): void {
     ball = sphere({ color: 4 });
     ball.position.set(4.5, 0.5, 0);
     scene.add(ball);
-
-    // A base model + its extracted clip registry: thinktank.txt carries the
-    // mesh once; thinktank_animations.ts carries just the motion tracks.
-    tank = new PicoCad2Loader().parse(thinktankText).instantiate();
-    tank.position.set(0, 0, -4.5);
-    scene.add(tank);
 
     void loadAnimationClips('pig').then((clips) => {
         pigClips = clips;
@@ -62,7 +60,7 @@ function update(dt: number, t: number): void {
     const m = move();
     pig.position.x = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, pig.position.x + m.x * PIG_SPEED * dt));
     pig.position.z = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, pig.position.z + m.z * PIG_SPEED * dt));
-    if (m.x !== 0 || m.z !== 0) pig.rotation.y = Math.atan2(m.x, m.z);
+    faceToward(pig, m.x, m.z);
 
     if (pressed('shoot') && tankClips.shoot) {
         tankAnim?.stop();

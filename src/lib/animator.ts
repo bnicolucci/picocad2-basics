@@ -1,5 +1,5 @@
 import { VERTEX_FLOATS } from './mesh';
-import type { Object3D } from './object3d';
+import type { InstantiatedModel, Object3D } from './object3d';
 import { type MotionTracks, type PicoCadAnimationClip, TEXTURE_SIZE_DEFAULT } from './picocad2';
 
 // Plays a PicoCadAnimationClip (a "<mesh>_animations.ts" registry entry) over
@@ -134,8 +134,27 @@ type Binding = {
     segments: Segment[];
     hasVisible: boolean;
     orig: { px: number; py: number; pz: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; visible: boolean };
-    tex: { meshIndex: number; original: Float32Array; work: Float32Array; ranges: { start: number; count: number }[]; segments: TexSegment[] } | null;
+    tex: {
+        /** The model root this node belongs to — vertex rewrites go there. */
+        owner: InstantiatedModel;
+        meshIndex: number;
+        original: Float32Array;
+        work: Float32Array;
+        ranges: { start: number; count: number }[];
+        segments: TexSegment[];
+    } | null;
 };
+
+// The nearest model root at or above `object`. Clips are played on whatever
+// root the caller has — a bare model, or an entity group wrapping one (or
+// several) — so `tex` tracks must find their own model rather than assume the
+// animator's root is one.
+function owningModel(object: Object3D): InstantiatedModel | null {
+    for (let node: Object3D | null = object; node; node = node.parent) {
+        if (node.model) return node.model;
+    }
+    return null;
+}
 
 const active = new Set<PicoCadAnimator>();
 
@@ -156,7 +175,6 @@ export class PicoCadAnimator {
     /** Clip node names the model has no node for — the "nothing happened" trap. */
     readonly unmatched: string[] = [];
     private readonly bindings: Binding[] = [];
-    private readonly root: Object3D;
     private readonly loop: boolean;
     private readonly speed: number;
     private readonly startClock: number;
@@ -164,7 +182,6 @@ export class PicoCadAnimator {
     private readonly textureHeight: number;
 
     constructor(root: Object3D, clip: PicoCadAnimationClip, opts: PlayOptions = {}) {
-        this.root = root;
         this.loop = opts.loop ?? true;
         this.speed = opts.speed ?? 1;
         this.startClock = opts.start ?? 0;
@@ -220,10 +237,12 @@ export class PicoCadAnimator {
         }
 
         let tex: Binding['tex'] = null;
-        if (texSegments.length > 0 && object.meshIndex !== null && this.root.model) {
-            const mesh = this.root.model.model.meshes[object.meshIndex];
+        const owner = texSegments.length > 0 ? owningModel(object) : null;
+        if (owner && object.meshIndex !== null) {
+            const mesh = owner.model.meshes[object.meshIndex];
             if (mesh) {
                 tex = {
+                    owner,
                     meshIndex: object.meshIndex,
                     original: mesh.vertices,
                     work: new Float32Array(mesh.vertices),
@@ -272,14 +291,23 @@ export class PicoCadAnimator {
                 orig.ry + sumAxis(segments, 'rot', 'y', beat) * TAU,
                 orig.rz + sumAxis(segments, 'rot', 'z', beat) * TAU,
             );
+            // Scale deltas are RELATIVE to the node's rest scale, not absolute
+            // additions: a node resting at 0.25 with delta 3 ends at 1.0, not
+            // 3.25. Identical to adding whenever the rest scale is 1 (which is
+            // every authored node except a deliberately-shrunk one like
+            // thinktank's `blast`), so this only changes the non-unit case.
             object.scale.set(
-                orig.sx + sumAxis(segments, 'scale', 'x', beat),
-                orig.sy + sumAxis(segments, 'scale', 'y', beat),
-                orig.sz + sumAxis(segments, 'scale', 'z', beat),
+                orig.sx * (1 + sumAxis(segments, 'scale', 'x', beat)),
+                orig.sy * (1 + sumAxis(segments, 'scale', 'y', beat)),
+                orig.sz * (1 + sumAxis(segments, 'scale', 'z', beat)),
             );
 
             if (binding.hasVisible) {
-                let hidden = !orig.visible;
+                // While a clip plays it owns visibility: `visible` segments
+                // mean "hidden during this window". A node authored hidden (a
+                // muzzle flash parked out of sight) is therefore revealed by
+                // its clip, and stop() puts its rest visibility back.
+                let hidden = false;
                 for (const seg of segments) {
                     if (seg.prop !== 'visible') continue;
                     if (beat >= seg.start && beat < seg.stop) {
@@ -297,7 +325,7 @@ export class PicoCadAnimator {
     // Reset UVs to the original mesh, then offset each animated face's UVs by
     // its accumulated scroll, summed per face in timeline order.
     private applyTex(tex: NonNullable<Binding['tex']>, beat: number): void {
-        const { original, work, ranges, segments, meshIndex } = tex;
+        const { original, work, ranges, segments, meshIndex, owner } = tex;
         work.set(original);
         const accum = new Map<number, { u: number; v: number }>();
         for (const seg of segments) {
@@ -317,7 +345,7 @@ export class PicoCadAnimator {
                 work[base + UV_V] -= v;
             }
         }
-        this.root.model?.pendingUpdates.set(meshIndex, work);
+        owner.pendingUpdates.set(meshIndex, work);
     }
 
     /** Restore every bound node to its rest state and stop advancing. */
@@ -328,7 +356,7 @@ export class PicoCadAnimator {
             object.rotation.set(orig.rx, orig.ry, orig.rz);
             object.scale.set(orig.sx, orig.sy, orig.sz);
             object.visible = orig.visible;
-            if (binding.tex) this.root.model?.pendingUpdates.set(binding.tex.meshIndex, binding.tex.original);
+            if (binding.tex) binding.tex.owner.pendingUpdates.set(binding.tex.meshIndex, binding.tex.original);
         }
         active.delete(this);
     }
