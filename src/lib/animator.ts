@@ -254,6 +254,11 @@ export class PicoCadAnimator {
 
     advance(clock: number): void {
         const elapsed = (clock - this.startClock) * this.speed;
+        // A finished one-shot restores the rest pose and unregisters itself.
+        if (!this.loop && elapsed >= this.duration) {
+            this.stop();
+            return;
+        }
         const beat = this.loop
             ? ((elapsed % this.duration) + this.duration) % this.duration
             : Math.min(elapsed, this.duration);

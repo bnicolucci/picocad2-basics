@@ -1,5 +1,6 @@
 import { advanceAnimators } from './lib/animator';
 import { PerspectiveCamera } from './lib/camera';
+import { pollGamepad, stepInput } from './lib/input';
 import { flattenScene, Scene } from './lib/object3d';
 import { Renderer, retro } from './lib/renderer';
 
@@ -49,10 +50,12 @@ export function run(config: RunConfig): void {
         pending = Math.min(pending + (now - last) / 1000, 6 * STEP);
         last = now;
 
+        pollGamepad();
         while (pending >= STEP) {
             pending -= STEP;
             t += STEP;
             config.update(STEP, t);
+            stepInput();
         }
         advanceAnimators(t);
 

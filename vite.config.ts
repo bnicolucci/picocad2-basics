@@ -3,43 +3,54 @@ import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { encodePicoCad2Compact } from './src/lib/picocad2_compact';
 
-// Dev-only save endpoint for the Animation editor: receives the generated
-// "<mesh>_animations.ts" module text and writes it into src/assets/models/.
-// The editor page itself is absent from build inputs, so neither this endpoint
-// nor the "-anim-" source exports exist in production.
+// Dev-only save endpoints for the editors: each receives generated module text
+// and writes it to its fixed destination in src/. The editor pages are absent
+// from build inputs, so neither these endpoints nor the editor-only source
+// files exist in production.
 function editorSave(): Plugin {
+    const handle = (
+        req: import('node:http').IncomingMessage,
+        res: import('node:http').ServerResponse,
+        toFile: (body: { mesh?: string; source?: string }) => string,
+    ): void => {
+        if (req.method !== 'POST') {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: 'POST only' }));
+            return;
+        }
+        let body = '';
+        req.on('data', (chunk) => {
+            body += chunk;
+        });
+        req.on('end', () => {
+            void (async () => {
+                try {
+                    const parsed = JSON.parse(body) as { mesh?: string; source?: string };
+                    if (typeof parsed.source !== 'string') throw new Error('bad request: need { source }');
+                    await writeFile(toFile(parsed), parsed.source, 'utf8');
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ ok: true }));
+                } catch (error) {
+                    res.statusCode = 400;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+                }
+            })();
+        });
+    };
+
     return {
         name: 'editor-save',
         configureServer(server) {
-            server.middlewares.use('/__editor/save-animations', (req, res) => {
-                if (req.method !== 'POST') {
-                    res.statusCode = 405;
-                    res.end(JSON.stringify({ error: 'POST only' }));
-                    return;
-                }
-                let body = '';
-                req.on('data', (chunk) => {
-                    body += chunk;
-                });
-                req.on('end', () => {
-                    void (async () => {
-                        try {
-                            const { mesh, source } = JSON.parse(body) as { mesh?: string; source?: string };
-                            if (!mesh || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(mesh) || typeof source !== 'string') {
-                                throw new Error('bad request: need { mesh, source }');
-                            }
-                            const file = resolve(import.meta.dirname,'src/assets/models', `${mesh}_animations.ts`);
-                            await writeFile(file, source, 'utf8');
-                            res.setHeader('Content-Type', 'application/json');
-                            res.end(JSON.stringify({ ok: true }));
-                        } catch (error) {
-                            res.statusCode = 400;
-                            res.setHeader('Content-Type', 'application/json');
-                            res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
-                        }
-                    })();
-                });
-            });
+            server.middlewares.use('/__editor/save-animations', (req, res) =>
+                handle(req, res, ({ mesh }) => {
+                    if (!mesh || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(mesh)) throw new Error('bad mesh name');
+                    return resolve(import.meta.dirname, 'src/assets/models', `${mesh}_animations.ts`);
+                }),
+            );
+            server.middlewares.use('/__editor/save-controls', (req, res) =>
+                handle(req, res, () => resolve(import.meta.dirname, 'src/controls.ts')),
+            );
         },
     };
 }

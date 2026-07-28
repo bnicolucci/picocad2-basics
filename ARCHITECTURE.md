@@ -45,10 +45,13 @@ its model's nodes, which `flattenScene` then picks up like any other change.
 src/
   main.ts        the app — also the style reference for new code
   run.ts         shared scene/camera + run(): canvas sizing, fixed 60 fps loop
-  primitives.ts  cube()/sphere()/cylinder()/plane()/hexprism()/capsule()
+  primitives.ts  cube()/sphere()/cylinder()/plane()/capsule()
+  controls.ts    GENERATED action buttons + typed move/held/pressed wrappers
   editor_animation.ts  dev-only Animation editor (editor_animation.html)
+  editor_controls.ts   dev-only Controls editor (editor_controls.html)
   lib/
     math.ts      mat4: identity, multiply, compose (T·R·S), perspective, lookAt
+    input.ts     keyboard+gamepad: move()/held()/pressed() + run-loop hooks
     picocad2.ts  file-format types (+ motion tracks), parse, buildTexture, bounds
     mesh.ts      buildModelGraph: model → live node tree + per-node GPU meshes
     object3d.ts  Object3D/Scene/Vector3 + flattenScene
@@ -100,7 +103,22 @@ Anim sources and the editor page are dev-only: the editor page is not a build
 input, and nothing else globs `-anim-` files, so production builds ship only the
 base model + the small registries.
 
-## 6. Adding things
+## 6. Input
+
+The PICO-8 split: **movement is fixed** (WASD/arrows + gamepad left stick and
+d-pad, read via `move()` → `{x, z}` with diagonals normalized), and **actions
+are a small named set** (4 max) defined in the generated `src/controls.ts` and
+curated in `/editor_controls.html` — rename an action, click its key cap and
+press a key to rebind, pick a gamepad button, Save.
+
+`held(name)` is true while down; `pressed(name)` is true for exactly one update
+step per press — the run loop consumes press edges after each step
+(`stepInput`) and polls the gamepad once per frame (`pollGamepad`), so a press
+is never missed or double-counted regardless of frame rate. Action names are a
+literal type: renaming one in the editor turns stale `pressed('...')` calls
+into compile errors.
+
+## 7. Adding things
 
 - **A new primitive**: drop `mesh_<name>.txt` in `assets/primitives/`, add
   `export const <name> = make('<name>')` in `primitives.ts`.
@@ -111,7 +129,7 @@ base model + the small registries.
   thread through `InstantiatedModel`/`flattenScene` → a uniform in
   `renderer.ts`. Follow how `color` is wired.
 
-## 7. Rendering notes
+## 8. Rendering notes
 
 - **Retro look**: render at `retro.scale` × canvas resolution, CSS-upscaled
   pixelated. No antialiasing (AA blends convex edges into dark hairlines).
@@ -124,7 +142,7 @@ base model + the small registries.
 - **Fixed timestep**: `run()` steps `update` at exactly 60 Hz regardless of
   display refresh; up to 6 catch-up steps after a slow frame.
 
-## 8. Build size
+## 9. Build size
 
 Only what the app imports ships: primitives are explicit pure-annotated
 factories (unused ones tree-shake out with their model text), anim sources and

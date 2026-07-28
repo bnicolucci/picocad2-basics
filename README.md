@@ -37,8 +37,17 @@ bun install
 bun run dev
 ```
 
-Open the Vite URL printed in the terminal for the demo (`index.html`), or open
-`/editor_animation.html` for the Animation Editor (dev-only).
+Open the Vite URL printed in the terminal for the demo (`index.html`) — WASD
+moves the pig, Z fires the tank, X bounces the pig. Two dev-only editors:
+
+| Page | Purpose |
+|---|---|
+| `/editor_animation.html` | Animation Editor — turn picoCAD 2 motion exports into tiny clip files |
+| `/editor_controls.html` | Controls Editor — name your action buttons and bind keys/gamepad buttons |
+
+Movement is always WASD/arrows (plus gamepad stick/d-pad): code reads
+`move()` → `{x, z}`. Actions are named — `pressed('shoot')`, `held('charge')` —
+and typed, so a renamed action is a compile error, not a silent no-op.
 
 ## Animations: one base model + a tiny tracks file
 
