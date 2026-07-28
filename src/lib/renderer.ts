@@ -2,6 +2,10 @@ import type { Mat4 } from './math';
 import { type GpuMesh, VERTEX_FLOATS } from './mesh';
 import type { BuiltTexture } from './picocad2';
 
+// Per-instance data lives in vertex attributes (divisor 1), not uniforms, so
+// every copy of a mesh — 200 dungeon floor tiles, say — draws in ONE
+// instanced call instead of one call each. Locations 0-4 come from the shared
+// mesh buffer, 5-10 from the per-mesh instance buffer.
 const VERTEX_SHADER = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_position;
@@ -10,20 +14,33 @@ layout(location = 2) in vec3 a_normal;
 layout(location = 3) in float a_colorIndex;
 layout(location = 4) in float a_faceFlags;
 
+layout(location = 5) in vec4 i_model0;
+layout(location = 6) in vec4 i_model1;
+layout(location = 7) in vec4 i_model2;
+layout(location = 8) in vec4 i_model3;
+// The instance's target UV rect (origin.xy, size.zw).
+layout(location = 9) in vec4 i_uvDst;
+// colorOverride (<0 = none), useUv, repeatU, repeatV.
+layout(location = 10) in vec4 i_params;
+
 uniform mat4 u_viewProj;
-uniform mat4 u_model;
 
 out vec2 v_uv;
 out vec3 v_normal;
 out float v_colorIndex;
 out float v_faceFlags;
+flat out vec4 v_uvDst;
+flat out vec4 v_params;
 
 void main() {
+  mat4 model = mat4(i_model0, i_model1, i_model2, i_model3);
   v_uv = a_uv;
-  v_normal = mat3(u_model) * a_normal;
+  v_normal = mat3(model) * a_normal;
   v_colorIndex = a_colorIndex;
   v_faceFlags = a_faceFlags;
-  gl_Position = u_viewProj * u_model * vec4(a_position, 1.0);
+  v_uvDst = i_uvDst;
+  v_params = i_params;
+  gl_Position = u_viewProj * model * vec4(a_position, 1.0);
 }`;
 
 const FRAGMENT_SHADER = `#version 300 es
@@ -32,30 +49,28 @@ in vec2 v_uv;
 in vec3 v_normal;
 in float v_colorIndex;
 in float v_faceFlags;
+flat in vec4 v_uvDst;
+flat in vec4 v_params;
 
 uniform sampler2D u_indexTexture;
 uniform sampler2D u_paletteTexture;
 uniform vec3 u_lightDir;
 uniform float u_ambient;
 uniform float u_transparentIndex;
-// >= 0: draw every face in this flat (still shaded) palette colour.
-uniform float u_colorOverride;
 
-// Per-instance UV atlas transform. u_uvSrc is the model's own UV rect
-// (origin.xy, size.zw); u_uvDst is the target tile rect. Sampled UVs are
-// normalized within src, repeated, then mapped into dst.
+// The model's own UV rect (origin.xy, size.zw) — the source the per-instance
+// transform maps out of. Per model, so it stays a uniform.
 uniform vec4 u_uvSrc;
-uniform vec4 u_uvDst;
-uniform vec2 u_uvRepeat;
-uniform bool u_useUv;
 
 out vec4 outColor;
 
+// Sampled UVs are normalized within src, repeated, then mapped into the
+// instance's dst rect.
 vec2 applyUv(vec2 uv) {
-  if (!u_useUv) return uv;
+  if (v_params.y < 0.5) return uv;
   vec2 local = (uv - u_uvSrc.xy) / max(u_uvSrc.zw, vec2(1e-6));
-  local = fract(local * u_uvRepeat);
-  return u_uvDst.xy + local * u_uvDst.zw;
+  local = fract(local * v_params.zw);
+  return v_uvDst.xy + local * v_uvDst.zw;
 }
 
 void main() {
@@ -64,8 +79,8 @@ void main() {
   bool noTex = (flags & 2) != 0;
 
   float colorIndex = v_colorIndex;
-  if (u_colorOverride >= 0.0) {
-    colorIndex = u_colorOverride;
+  if (v_params.x >= 0.0) {
+    colorIndex = v_params.x;
   } else if (!noTex) {
     colorIndex = floor(texture(u_indexTexture, applyUv(v_uv)).r * 255.0 + 0.5);
     if (abs(colorIndex - u_transparentIndex) < 0.5) discard;
@@ -104,7 +119,21 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
     return shader;
 }
 
-type DrawMesh = { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; count: number };
+// Floats per instance row: mat4 (16) + uvDst (4) + params (4).
+const INSTANCE_FLOATS = 24;
+
+type DrawMesh = {
+    vao: WebGLVertexArrayObject;
+    vbo: WebGLBuffer;
+    count: number;
+    // Per-mesh instance buffer, refilled each frame with the rows for every
+    // copy of this mesh visible right now.
+    instanceVbo: WebGLBuffer;
+    instanceData: Float32Array;
+    instanceCount: number;
+    /** Instances the GPU buffer is currently sized for. */
+    capacity: number;
+};
 
 // An uploaded model: its per-node draw calls plus its own textures.
 type UploadedModel = {
@@ -164,6 +193,10 @@ export class Renderer {
     // Mutable so it can be dialed in live (`renderer.retroScale = 0.25`).
     retroScale = 0.5;
 
+    /** Draw calls issued by the last render — one per visible mesh, not per
+        instance. `renderer.drawCalls` in the console to check a scene. */
+    drawCalls = 0;
+
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         // No antialiasing: picoCAD is crisp/aliased, and AA otherwise blends
@@ -181,8 +214,7 @@ export class Renderer {
         }
         this.program = program;
         const uniformNames = [
-            'u_viewProj', 'u_model', 'u_indexTexture', 'u_paletteTexture', 'u_lightDir', 'u_ambient', 'u_transparentIndex',
-            'u_uvSrc', 'u_uvDst', 'u_uvRepeat', 'u_useUv', 'u_colorOverride',
+            'u_viewProj', 'u_indexTexture', 'u_paletteTexture', 'u_lightDir', 'u_ambient', 'u_transparentIndex', 'u_uvSrc',
         ];
         for (const name of uniformNames) {
             this.u[name] = gl.getUniformLocation(program, name);
@@ -222,7 +254,26 @@ export class Renderer {
             gl.enableVertexAttribArray(4);
             gl.vertexAttribPointer(4, 1, gl.FLOAT, false, stride, 9 * 4);
 
-            drawMeshes.push({ vao, vbo, count: mesh.indices.length });
+            // Instance attributes: one row per copy, advanced once per instance.
+            const instanceVbo = gl.createBuffer()!;
+            gl.bindBuffer(gl.ARRAY_BUFFER, instanceVbo);
+            const istride = INSTANCE_FLOATS * 4;
+            for (let i = 0; i < 6; i++) {
+                const location = 5 + i;
+                gl.enableVertexAttribArray(location);
+                gl.vertexAttribPointer(location, 4, gl.FLOAT, false, istride, i * 16);
+                gl.vertexAttribDivisor(location, 1);
+            }
+
+            drawMeshes.push({
+                vao,
+                vbo,
+                count: mesh.indices.length,
+                instanceVbo,
+                instanceData: new Float32Array(0),
+                instanceCount: 0,
+                capacity: 0,
+            });
         }
 
         gl.bindVertexArray(null);
@@ -294,62 +345,106 @@ export class Renderer {
         gl.uniform3f(this.u.u_lightDir, lightDir[0], lightDir[1], lightDir[2]);
         gl.uniform1f(this.u.u_ambient, 0.15);
 
-        // Uploaded on first sight, then sorted by handle so texture rebinds
-        // happen once per model, not per instance.
-        const draws = instances
-            .map((inst) => ({ inst, handle: this.handleFor(inst.model) }))
-            .sort((a, b) => a.handle - b.handle);
+        // Uploaded on first sight, then grouped by model so every copy of a
+        // mesh goes out in one instanced call and textures bind once.
+        const byModel = new Map<ModelHandle, Instance[]>();
+        for (const instance of instances) {
+            const handle = this.handleFor(instance.model);
+            const group = byModel.get(handle);
+            if (group) group.push(instance);
+            else byModel.set(handle, [instance]);
+        }
 
-        let boundModel = -1;
-        for (const { inst, handle } of draws) {
+        let drawCalls = 0;
+        for (const [handle, group] of byModel) {
             const model = this.models[handle];
-            if (handle !== boundModel) {
-                gl.uniform1f(this.u.u_transparentIndex, model.transparentIndex);
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, model.indexTexture);
-                gl.uniform1i(this.u.u_indexTexture, 0);
-                gl.activeTexture(gl.TEXTURE1);
-                gl.bindTexture(gl.TEXTURE_2D, model.paletteTexture);
-                gl.uniform1i(this.u.u_paletteTexture, 1);
-                boundModel = handle;
-            }
+            for (const mesh of model.meshes) mesh.instanceCount = 0;
 
-            if (inst.uv) {
-                const [sx, sy, sw, sh] = model.uvBounds;
-                const size = inst.uv.tile?.size ?? 16;
-                const su = size / model.textureWidth;
-                const sv = size / model.textureHeight;
-                const dst = inst.uv.tile
-                    ? [(inst.uv.tile.u - 1) * su, (inst.uv.tile.v - 1) * sv, su, sv]
-                    : [sx, sy, sw, sh];
-                gl.uniform1i(this.u.u_useUv, 1);
-                gl.uniform4f(this.u.u_uvSrc, sx, sy, sw, sh);
-                gl.uniform4f(this.u.u_uvDst, dst[0], dst[1], dst[2], dst[3]);
-                gl.uniform2f(this.u.u_uvRepeat, inst.uv.repeatU ?? 1, inst.uv.repeatV ?? 1);
-            } else {
-                gl.uniform1i(this.u.u_useUv, 0);
-            }
-            gl.uniform1f(this.u.u_colorOverride, inst.color ?? -1);
-
-            if (inst.updates) {
-                for (const { meshIndex, vertices } of inst.updates) {
-                    const mesh = model.meshes[meshIndex];
-                    if (!mesh) continue;
-                    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
-                    gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+            for (const instance of group) {
+                const row = this.instanceRow(instance, model);
+                if (instance.updates) {
+                    for (const { meshIndex, vertices } of instance.updates) {
+                        const mesh = model.meshes[meshIndex];
+                        if (!mesh) continue;
+                        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+                        gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+                    }
+                }
+                for (let i = 0; i < model.meshes.length; i++) {
+                    const matrix = instance.meshMatrices[i];
+                    if (!matrix) continue;
+                    const mesh = model.meshes[i];
+                    if ((mesh.instanceCount + 1) * INSTANCE_FLOATS > mesh.instanceData.length) {
+                        const grown = new Float32Array(Math.max(8, mesh.instanceCount * 2) * INSTANCE_FLOATS);
+                        grown.set(mesh.instanceData);
+                        mesh.instanceData = grown;
+                    }
+                    const offset = mesh.instanceCount * INSTANCE_FLOATS;
+                    mesh.instanceData.set(matrix, offset);
+                    mesh.instanceData.set(row, offset + 16);
+                    mesh.instanceCount++;
                 }
             }
 
-            for (let i = 0; i < model.meshes.length; i++) {
-                const matrix = inst.meshMatrices[i];
-                if (!matrix) continue;
-                const mesh = model.meshes[i];
-                gl.uniformMatrix4fv(this.u.u_model, false, matrix);
+            const [sx, sy, sw, sh] = model.uvBounds;
+            gl.uniform4f(this.u.u_uvSrc, sx, sy, sw, sh);
+            gl.uniform1f(this.u.u_transparentIndex, model.transparentIndex);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, model.indexTexture);
+            gl.uniform1i(this.u.u_indexTexture, 0);
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, model.paletteTexture);
+            gl.uniform1i(this.u.u_paletteTexture, 1);
+
+            for (const mesh of model.meshes) {
+                if (mesh.instanceCount === 0) continue;
                 gl.bindVertexArray(mesh.vao);
-                gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+                gl.bindBuffer(gl.ARRAY_BUFFER, mesh.instanceVbo);
+                if (mesh.instanceCount > mesh.capacity) {
+                    gl.bufferData(gl.ARRAY_BUFFER, mesh.instanceData.byteLength, gl.DYNAMIC_DRAW);
+                    mesh.capacity = mesh.instanceData.length / INSTANCE_FLOATS;
+                }
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.instanceData, 0, mesh.instanceCount * INSTANCE_FLOATS);
+                gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0, mesh.instanceCount);
+                drawCalls++;
             }
         }
         gl.bindVertexArray(null);
+        this.drawCalls = drawCalls;
+    }
+
+    /** The 8 per-instance floats after the matrix: uvDst, then colour
+        override / useUv / repeat. */
+    private readonly row = new Float32Array(8);
+
+    private instanceRow(instance: Instance, model: UploadedModel): Float32Array {
+        const row = this.row;
+        const uv = instance.uv;
+        if (uv) {
+            const [sx, sy, sw, sh] = model.uvBounds;
+            const size = uv.tile?.size ?? 16;
+            const su = size / model.textureWidth;
+            const sv = size / model.textureHeight;
+            if (uv.tile) {
+                row[0] = (uv.tile.u - 1) * su;
+                row[1] = (uv.tile.v - 1) * sv;
+                row[2] = su;
+                row[3] = sv;
+            } else {
+                row[0] = sx;
+                row[1] = sy;
+                row[2] = sw;
+                row[3] = sh;
+            }
+            row[5] = 1;
+            row[6] = uv.repeatU ?? 1;
+            row[7] = uv.repeatV ?? 1;
+        } else {
+            row[0] = row[1] = row[2] = row[3] = 0;
+            row[5] = row[6] = row[7] = 0;
+        }
+        row[4] = instance.color ?? -1;
+        return row;
     }
 
     // Upload-once cache for models built by the loader: the same Model object
