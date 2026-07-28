@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0; out=$(bun run check 2>&1); if [ $? -eq 0 ]; then exit 0; fi; echo \"$out\" >&2; exit 2",
+            "timeout": 180,
+            "statusMessage": "Checking types and tests…"
+          }
+        ]
+      }
+    ]
+  }
+}

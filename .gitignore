@@ -12,8 +12,13 @@ dist
 dist-ssr
 *.local
 
-# Local, per-machine Claude Code settings
-.claude/
+# Claude Code settings. settings.json is project policy (the Stop hook that
+# gates on `bun run check`) and IS committed; settings.local.json is the
+# per-machine permission allowlist and is not. Note the trailing /* — git
+# cannot re-include a file inside an excluded DIRECTORY, so `.claude/` here
+# would make the negation below silently do nothing.
+.claude/*
+!.claude/settings.json
 
 # Scratch space for ideas/prototypes — never uploaded. Park reference material
 # and works-in-progress here (e.g. wip/future, wip/editor_examples).
