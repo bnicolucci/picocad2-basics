@@ -25,7 +25,7 @@ export const entities = {
     "thinktank": {
         tags: ["player"],
         parts: [
-            { mesh: "thinktank" },
+            { mesh: "thinktank", scale: [0.5, 0.5, 0.5] },
         ],
     },
 } as const satisfies Record<string, EntityBlueprint>;

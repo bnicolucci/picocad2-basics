@@ -12,8 +12,9 @@ export type EditorViewport = {
     renderer: Renderer;
     scene: Scene;
     camera: PerspectiveCamera;
-    /** Aim the orbit at a centre and fit the distance to a bounding radius. */
-    frame(center: { x: number; y: number; z: number }, radius: number): void;
+    /** Aim the orbit at a centre and fit the distance to a bounding radius,
+        optionally snapping to a viewing angle (radians). */
+    frame(center: { x: number; y: number; z: number }, radius: number, pose?: { yaw?: number; pitch?: number }): void;
     /** The viewport's animation clock (seconds) — pass as playClip `start`. */
     clock(): number;
     /** World point -> canvas CSS px, or null when behind the camera. */
@@ -83,12 +84,14 @@ export function createEditorViewport(canvas: HTMLCanvasElement, opts: { fov?: nu
         renderer,
         scene,
         camera,
-        frame(center, radius) {
+        frame(center, radius, pose) {
             const r = Math.max(0.5, radius);
             orbit.target = { ...center };
             orbit.distance = (r / Math.sin((fov * Math.PI) / 360)) * 1.15;
             orbit.minDistance = Math.max(0.05, r * 0.15);
             orbit.maxDistance = Math.max(orbit.distance * 4, r * 20);
+            if (pose?.yaw !== undefined) orbit.yaw = pose.yaw;
+            if (pose?.pitch !== undefined) orbit.pitch = pose.pitch;
         },
         clock: () => clock,
         project(x, y, z) {

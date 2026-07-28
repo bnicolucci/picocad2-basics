@@ -1,5 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { tryEncodePicoCad2Compact } from './src/lib/picocad2_compact';
 
@@ -11,7 +11,7 @@ function editorSave(): Plugin {
     const handle = (
         req: import('node:http').IncomingMessage,
         res: import('node:http').ServerResponse,
-        toFile: (body: { mesh?: string; source?: string }) => string,
+        toFile: (body: { mesh?: string; name?: string; source?: string }) => string,
     ): void => {
         if (req.method !== 'POST') {
             res.statusCode = 405;
@@ -25,9 +25,11 @@ function editorSave(): Plugin {
         req.on('end', () => {
             void (async () => {
                 try {
-                    const parsed = JSON.parse(body) as { mesh?: string; source?: string };
+                    const parsed = JSON.parse(body) as { mesh?: string; name?: string; source?: string };
                     if (typeof parsed.source !== 'string') throw new Error('bad request: need { source }');
-                    await writeFile(toFile(parsed), parsed.source, 'utf8');
+                    const file = toFile(parsed);
+                    await mkdir(dirname(file), { recursive: true });
+                    await writeFile(file, parsed.source, 'utf8');
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ ok: true }));
                 } catch (error) {
@@ -53,6 +55,12 @@ function editorSave(): Plugin {
             );
             server.middlewares.use('/__editor/save-entities', (req, res) =>
                 handle(req, res, () => resolve(import.meta.dirname, 'src/assets/entities.ts')),
+            );
+            server.middlewares.use('/__editor/save-dungeon', (req, res) =>
+                handle(req, res, ({ name }) => {
+                    if (!name || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) throw new Error('bad dungeon name');
+                    return resolve(import.meta.dirname, 'src/assets/dungeons', `${name}.ts`);
+                }),
             );
         },
     };

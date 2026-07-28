@@ -12,13 +12,15 @@ export function statusReporter(el: HTMLElement): SetStatus {
     };
 }
 
+/** Resolves true when the file was written — callers that do something after a
+    save (open a preview, say) can wait on it. */
 export async function saveGenerated(
     setStatus: SetStatus,
     endpoint: string,
     body: unknown,
     savedKey: string,
     message: string,
-): Promise<void> {
+): Promise<boolean> {
     setStatus('Saving…');
     try {
         const response = await fetch(endpoint, {
@@ -30,8 +32,10 @@ export async function saveGenerated(
         if (!response.ok || !result.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
         sessionStorage.setItem(savedKey, message);
         setStatus(message);
+        return true;
     } catch (error) {
         setStatus(`Save failed: ${error instanceof Error ? error.message : error}`, true);
+        return false;
     }
 }
 

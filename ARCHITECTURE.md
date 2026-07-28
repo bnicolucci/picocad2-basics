@@ -53,6 +53,9 @@ src/
   controls.ts    GENERATED action buttons + typed move/held/pressed wrappers
   editor_animation.ts  dev-only Animation editor (editor_animation.html)
   editor_controls.ts   dev-only Controls editor (editor_controls.html)
+  editor_entity.ts     dev-only Entity editor (editor_entity.html)
+  editor_dungeon.ts    dev-only Dungeon editor (editor_dungeon.html)
+  dungeon_play.ts      dev-only dungeon preview (dungeon_play.html)
   lib/
     math.ts      mat4: identity, multiply, compose (T·R·S), perspective, lookAt
     input.ts     keyboard+gamepad: move()/held()/pressed() + run-loop hooks
@@ -60,8 +63,11 @@ src/
     mesh.ts      buildModelGraph: model → live node tree + per-node GPU meshes
     object3d.ts  Object3D/Scene/Vector3 + flattenScene
     loader.ts    PicoCad2Loader.parse(text).instantiate(look?) → Object3D
+    entity.ts    EntityBlueprint / instantiateEntity / faceToward
+    dungeon.ts   Dungeon data model + resolveTile / buildRoom / buildDungeon
     animator.ts  playClip / PicoCadAnimator / clipDuration / advanceAnimators
     animPreview.ts  the editor's orbit-camera single-model preview
+    editorPage.ts / editorViewport.ts  shared dev-editor chrome + viewport
     picocad2_animation_extract.ts  pure clip extractor + registry generator
     picocad2_compact.ts  pc2! wire encoding (build plugin encodes, parse decodes)
     renderer.ts  WebGL2: render(Instance[]) with upload-once cache, retroScale
@@ -72,6 +78,9 @@ src/
                  <mesh>-anim-<clip>.txt animation sources (dev-only editor input)
                  <mesh>_animations.ts generated clip registries
                  animations.ts  loadAnimationClips(mesh) registry lookup
+    dungeon/     <category>.txt part libraries (walls / grounds / props)
+    dungeons/    <name>.ts generated dungeons
+    entities.ts  generated entity registry
 ```
 
 Dependency direction is strictly **app → lib**; `lib/` knows nothing about any
@@ -88,6 +97,10 @@ Per-instance look:
 - `{ color: 4 }` — every face flat palette colour 4 (still shaded)
 - `{ uv: { tile: { u, v } } }` — re-point the model's UVs at another 16px atlas tile
 - `{ uv: { repeatU, repeatV } }` — tile the texture across the surface
+- `{ part: 'pillar' }` — instantiate only that named node. A part library puts
+  several independent things in one file (`walls.txt` = wall / pillar /
+  castley); every part still shares the file's single GPU upload, so a room of
+  240 tiles costs three texture binds. `model.parts` lists the names.
 
 ## 5. Animation pipeline
 
@@ -122,7 +135,55 @@ is never missed or double-counted regardless of frame rate. Action names are a
 literal type: renaming one in the editor turns stale `pressed('...')` calls
 into compile errors.
 
-## 7. Adding things
+## 7. Dungeons
+
+A dungeon is a grid of **rooms**; a room is a tile grid (`0` pit / `1` floor /
+`2` wall) plus door edges and sparse overlays — which authored part fills a
+tile, which prop stands on it, which entity spawns there. Tiles are one world
+unit; room `(rc, rr)` starts at world `X = rc*tileCols, Z = rr*tileRows`.
+
+Parts come from `src/assets/dungeon/<category>.txt`: the FILE is the category
+(`walls`, `grounds`, `props`) and each named mesh node in it is a part. Author
+them standing on `y = 0`, centred on x/z, about a tile wide — they are placed at
+a uniform tile scale, so what you model is what you get.
+
+```
+/editor_dungeon.html   paint rooms, place entities, Save
+  └─ src/assets/dungeons/<name>.ts     GENERATED: the data +
+       buildDungeon() / buildRoom(rc, rr) wired to its own asset imports
+          └─ lib/dungeon.ts  resolveTile → buildRoom → Object3D group
+  └─ "Preview in game" → /dungeon_play.html?dungeon=<name>
+       saves first (the play page loads the generated file), then walks it
+       in the real run() harness
+```
+
+Painting: drag to paint, ctrl-click is an eyedropper that makes the brush
+whatever the clicked tile shows. Clicking a swatch opens a floating list of
+that category's parts, each with a 3/4-view render of the real model
+(`lib/editorIcons.ts` — the actual renderer on an off-screen canvas, so an
+icon can't drift from what you get in play). Every brush is additive; removing
+things is a menu choice, not a modifier — Pit wipes a tile, and the Prop and
+Entity lists start with a "None" entry that clears that overlay.
+
+`resolveTile` is the single source of truth for what is on a tile: the painted
+part when there is one, otherwise the auto pick (a deterministic per-tile hash
+for floors, the file's first part for walls). The editor's 2D map colours tiles
+through it too — sampling each part's real texture colour — so the map and the
+3D preview can never disagree with the game.
+
+Entity placements store a plain name, so a blueprint deleted from the entity
+registry since the last Save spawns nothing instead of throwing. `buildRoom`
+names each one `entity:<name>`, so a game can find its placements.
+
+`src/dungeon_play.ts` is the dev-only preview that button opens: the same
+`run()` loop as the app, the entity tagged `player` (its painted placement if
+there is one, re-parented out of its room group so room culling can't hide it),
+circle-vs-tile collision through `isSolidAt`, and a fixed three-quarter camera
+that slides to the neighbouring room when you walk through a door. Only the
+room you are in draws — plus the one you just left, while the camera is still
+sliding.
+
+## 8. Adding things
 
 - **A new primitive**: drop `mesh_<name>.txt` in `assets/primitives/`, add
   `export const <name> = make('<name>')` in `primitives.ts`.
@@ -133,10 +194,18 @@ into compile errors.
   thread through `InstantiatedModel`/`flattenScene` → a uniform in
   `renderer.ts`. Follow how `color` is wired.
 
-## 8. Rendering notes
+## 9. Rendering notes
 
 - **Retro look**: render at `renderer.retroScale` × canvas resolution, CSS-upscaled
   pixelated. No antialiasing (AA blends convex edges into dark hairlines).
+- **Instancing**: per-instance data (model matrix, colour override, UV
+  transform) lives in vertex attributes with divisor 1, not uniforms, so every
+  copy of a mesh goes out in ONE `drawElementsInstanced` call. Draw calls =
+  the number of distinct *meshes* on screen, not the number of objects: 400
+  cubes with 400 different looks cost one call, and a 240-tile dungeon room
+  costs 26 instead of 261. `renderer.drawCalls` reports the last frame's count.
+  Each mesh keeps its own instance buffer, refilled per frame; `flattenScene`
+  is unchanged, so nothing in user code or the scene graph had to move.
 - **Palette shading**: fragment shader samples an index texture, then a 16×3
   palette (lit / mid / dark rows) picked by a stepped headlight term with a
   checker dither between bands — the picoCAD look.
@@ -146,7 +215,7 @@ into compile errors.
 - **Fixed timestep**: `run()` steps `update` at exactly 60 Hz regardless of
   display refresh; up to 6 catch-up steps after a slow frame.
 
-## 9. Build size
+## 10. Build size
 
 Only what the app imports ships: primitives are explicit pure-annotated
 factories (unused ones tree-shake out with their model text), anim sources and

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dungeon Preview</title>
+
+    <!-- Same PAGE-config recipe as index.html: it lives here so the inline
+         script can size and colour the canvas during HTML parse, before the
+         first paint. This is the dev-only preview the Dungeon editor opens. -->
+    <script>
+      var PAGE = {
+        width: 800,
+        height: 600,
+        retroScale: 0.5,
+        background: '#0b0e14',
+        pageBackground: '#111'
+      };
+    </script>
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+        display: grid;
+        place-items: center;
+      }
+
+      #view {
+        display: block;
+        image-rendering: pixelated;
+      }
+
+      #hint {
+        position: fixed;
+        bottom: 10px;
+        left: 14px;
+        font: 12px/1.4 monospace;
+        color: rgba(255, 255, 255, 0.6);
+        text-shadow: 0 1px 0 #000;
+        user-select: none;
+        pointer-events: none;
+      }
+    </style>
+
+    <script>
+      (function (p) {
+        var css =
+          p.width && p.height
+            ? '#view{width:' + p.width + 'px;height:' + p.height + 'px}'
+            : '#view{width:100vw;height:100vh}';
+        css += '#view{background:' + p.background + '}';
+        if (p.pageBackground) css += 'body{background:' + p.pageBackground + '}';
+        var style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+      })(PAGE);
+    </script>
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=2" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <script>
+      (function (p, c) {
+        var s = (p.retroScale || 0.5) * Math.min(window.devicePixelRatio || 1, 2);
+        var w = p.width && p.height ? p.width : innerWidth;
+        var h = p.width && p.height ? p.height : innerHeight;
+        c.width = Math.max(1, Math.floor(w * s));
+        c.height = Math.max(1, Math.floor(h * s));
+      })(PAGE, document.getElementById('view'));
+    </script>
+    <div id="hint">WASD / arrows: walk · walk through a door to change room</div>
+    <script type="module" src="/src/dungeon_play.ts"></script>
+  </body>
+</html>

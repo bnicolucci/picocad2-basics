@@ -81,40 +81,86 @@ is a stretch goal via ray-vs-collider). Blender-style G/R/S keys: stretch.
 | `src/assets/entities.ts` | GENERATED registry |
 | `vite.config.ts` | + `save-entities` endpoint (reuses `handle`) |
 
-## Phase 2 — Dungeon editor (next)
+## Phase 2 — Dungeon editor (DONE 2026-07-28)
 
-Port of the wip dungeon editor against the new engine. The data model
-(`wip/.../dungeon/dungeon_types.ts`) carries over nearly verbatim: dungeon =
-grid of rooms; room = tile grid (empty/floor/wall) + door edges + sparse
-part-override maps. Asset convention too: each `src/assets/dungeon/*.txt` is a
-category, each named node a part.
+Ported against the new engine. Dungeon = grid of rooms; room = tile grid
+(empty/floor/wall) + door edges + sparse part-override maps. Asset convention
+carried over: each `src/assets/dungeon/*.txt` is a category, each named node a
+part, authored on the ground plane at ~1 tile and placed at a uniform tile
+scale.
 
-**One addition**: a per-room `entities` layer (sparse tile index → entity name
-+ facing/rotation) so Phase-1 entities are placed directly on the map. This
-replaces the old standalone scene editor for the Zelda use case.
+**The addition**: a per-room `entities` layer (sparse tile index → entity name
++ yaw) so Phase-1 entities are placed directly on the map. This replaces the
+old standalone scene editor for the Zelda use case.
 
-UI as before: sidebar (grid size, palette recolour, paint palette, room nav,
+UI: sidebar (dungeon picker, grid size, paint palette + part row, room nav,
 door toggles), 2D paint canvas, live 3D room preview. Saves generated
-`src/assets/dungeons/<name>.ts`; runtime `buildDungeon` makes each room an
-`Object3D` group.
+`src/assets/dungeons/<name>.ts`, which exports the data plus `buildDungeon()`
+/ `buildRoom(rc, rr)` wired to its own asset imports.
+
+The 2D map and the 3D preview both resolve tiles through the runtime's
+`resolveTile`, and map colours are sampled from each part's real texture, so
+the map cannot disagree with what the game builds.
+
+### Files
+
+| file | role |
+|---|---|
+| `editor_dungeon.html` | dev-only page (links `/editor.css`) |
+| `src/editor_dungeon.ts` | the editor |
+| `dungeon_play.html` + `src/dungeon_play.ts` | dev-only "Preview in game" page |
+| `src/lib/dungeon.ts` | types + helpers + `resolveTile` / `buildRoom` / `buildDungeon` / `isSolidAt` |
+| `src/assets/dungeon/*.txt` | part libraries by category (junction into the picoCAD2 app folder) |
+| `src/assets/dungeons/*.ts` | GENERATED dungeons |
+| `vite.config.ts` | + `save-dungeon` endpoint (mkdirs its directory) |
+
+Engine changes it needed: `instantiate({ part })` (draw one named node of a
+multi-part file — one upload shared by every tile) and `PicoCadModel.parts`;
+`EditorViewport.frame` takes an optional yaw/pitch pose; `saveGenerated`
+resolves true/false so Preview can wait for the write.
+
+Carried over from the wip editor: the floating part menu with 3/4-view icons
+(`src/lib/editorIcons.ts`), now driven by the real renderer.
+
+Not carried over: the palette recolour select (see Backlog — the new engine has
+no palette override yet).
 
 ## Phase 3 — runtime glue (to play what you edit)
 
-- Circle-circle collision restored from git history (`c867ac8` era).
-- Door triggers + camera slide between rooms (the Zelda room transition).
-- Entity spawning from dungeon data; player entity = the one tagged `player`.
+The dev-only preview page (`src/dungeon_play.ts`) already does the walkable
+core, so what it does is the reference for what moves into game code:
+
+- ~~Entity spawning from dungeon data; player = the one tagged `player`~~ DONE
+  (a painted `player` placement is adopted as the player).
+- ~~Tile collision~~ DONE via `isSolidAt` — circle-vs-tile, axis-at-a-time so
+  you slide along walls. Circle-**circle** collision between entities is still
+  to come (git history, `c867ac8` era).
+- ~~Camera slide between rooms~~ DONE as a lerp on room change, with only the
+  current room (and the one being left) drawn. Proper door *triggers* — a
+  band at the opening with a spawn point just inside the neighbour — are still
+  open; the preview just uses "which room is the player standing in".
 - HUD (hearts/minimap) is game code, later.
+
+When a real dungeon game exists it becomes `main.ts` + `index.html`; the
+preview page stays as the editor's check-it-works button.
 
 ## Backlog / futures
 
 - **Palettes** (`src/assets/palettes/` — restored 2026-07-28): palette
-  recolouring of parts/entities, as the wip dungeon editor did. Integral
-  later; wire into the entity editor's Look section and the dungeon editor's
-  palette select when it lands.
+  recolouring of parts/entities, as the wip dungeon editor did. Needs a
+  `PicoCadPaletteOverride` argument on `buildTexture` first. Wire into the
+  entity editor's Look section and a dungeon-editor palette select when it
+  lands (a `paletteId` field on `Dungeon` is the natural home). Note the part
+  icons are baked once at startup, so a palette switch would need them re-baked.
 - **Texture dedup across models**: primitives usually carry the same
   texture. Dedupe at renderer upload (hash `BuiltTexture` → share the GPU
   texture) and/or at build in the compact plugin (identical texture blocks
-  encoded once).
+  encoded once). Now that instancing batches per mesh, this is what would let
+  DIFFERENT models batch together as well.
+- **Instancing follow-ups** (the core landed 2026-07-28): `flattenScene` still
+  allocates a `Mat4` per node and an `Instance` per model root every frame —
+  the next win if CPU time shows up. Frustum/room culling is the other one; the
+  dungeon preview already culls by room, crudely.
 - **Freeform scene editor**: only if a non-dungeon game needs it.
 - **In-viewport transform gizmos / click-picking**: needs a small raycaster
   (ray vs part collider), then G/R/S keys like the old editors.
