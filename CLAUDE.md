@@ -19,6 +19,51 @@ Use **bun** / **bunx**. Never npm/npx.
 - Dev server: `bun run dev`
 - Build: `bun run build`
 - Type-check: `bunx tsc --noEmit`
+- Test: `bun test` · Both: `bun run check` (a Stop hook runs this and blocks on failure)
+
+## Locked behaviours
+
+Features that exist on purpose and have been lost before to unrelated rewrites.
+They are not frozen — but **if a change would remove or alter one, say so
+explicitly in your response instead of doing it silently.** If that was the
+point of the change, do it and edit this list in the same commit.
+
+`(test)` = a test in `src/lib/*.test.ts` fails if it breaks. Everything else is
+guarded only by this list, so read it before rewriting a region.
+
+**Engine**
+- Draw calls scale with distinct meshes on screen, not object count — per-instance matrix / colour / UV live in vertex attributes, never uniforms `(test)`
+- `instantiate({ part })` draws ONE named node of a multi-part file, sharing the file's single upload `(test)`
+- One X-mirror at each model root; face normals pre-negated to match `(test)`
+- Retro look: render at `retroScale`, CSS-upscale pixelated, no antialiasing
+- Palette shading: stepped headlight, checker dither between bands
+- Fixed 60 Hz `update`, up to 6 catch-up steps
+- `pc2!` compact encoding at build time, decoded transparently by `parsePicoCad2` `(test)`
+- Movement is fixed (WASD/arrows/stick); actions are a named set of ≤4 from generated `controls.ts`; `pressed()` is true for exactly one step
+
+**Pages**
+- `index.html`'s `PAGE` config is the single source of truth for canvas size/colour/`retroScale`, applied during HTML parse so the first paint is already correct
+- Editor pages are dev-only and never build inputs; unused primitives tree-shake out with their model text
+
+**Dungeon editor** (`/editor_dungeon.html`)
+- Clicking a paint swatch opens a **floating pick menu** listing that category's parts, each with a **3/4-view render of the real model** in its own palette. Do not replace this with colour chips or an inline row — it has been lost that way once already
+- Ctrl-click on the map is an eyedropper
+- Brushes are additive: no erase modifier. Pit wipes a tile; Prop and Entity lists start with a "None" entry that clears the overlay
+- 2D map tile colours come from `resolveTile` + each part's real texture, so the map can never disagree with the 3D preview
+- Toggling a door punches the opening in BOTH rooms
+- "Preview in game" saves first, and opens the tab synchronously on the click (opening it after the await gets eaten by the popup blocker)
+- Editor state round-trips out of the generated files; there are no sidecar saves
+
+**Other editors**
+- Entity editor: forward is the VISIBLE nose direction, picked from 6 buttons and shown by the arrow gizmo; renaming a saved entity warns that `spawnEntity('old')` will break
+- Animation editor: include/exclude state round-trips out of the generated `<mesh>_animations.ts`; preview uses the real runtime animator, not a bespoke one
+- Controls editor: movement keys are not rebindable, by design
+
+**Dungeon runtime**
+- `buildRoom` names spawned entities `entity:<name>` — the play page finds the player by it `(test)`
+- A `player`-tagged entity painted on the map IS the player (no second copy), re-parented out of its room group so room culling can't hide it
+- Play page draws only the current room, plus the one being left mid-slide
+- Unknown entity/part names spawn nothing rather than throwing `(test)`
 
 ## Code style
 - No comments unless the WHY is non-obvious
