@@ -89,6 +89,8 @@ src/
   assets/        models + primitives (.txt), generated *_animations.ts clips,
                  GENERATED entities.ts registry, dungeon/ part libraries,
                  GENERATED dungeons/*.ts, palettes/
+tools/
+  rm1/           offline .txt -> .rm1 converter. NOT part of the app or build.
 ```
 
 | File | Role |
@@ -116,6 +118,7 @@ src/
 | `src/lib/editorIcons.ts` | `renderIcons([[key, object]])` → PNG data URLs: small 3/4-view renders through the REAL renderer (same meshes/palette/shading), each framed from its own bounds. One-shot — the GL context is dropped after baking. |
 | `src/lib/animPreview.ts` | The Animation editor's single-model preview over `editorViewport`. |
 | `src/lib/math.ts` | Column-major mat4 helpers: `identity`, `multiply`, `compose` (T·R·S), `perspective`, `lookAt`. |
+| `tools/rm1/` | Offline converter: picoCAD2 `.txt` → `.rm1`, a compact binary retro-mesh format (quantized positions, int16 UVs, one-byte-per-pixel texture, X-mirror baked out so the format is plain right-handed). Reader/writer split — `write_rm1.ts` knows nothing about picoCAD2. **Deliberately not wired into the app or the build**, see below. Run: `bun tools/rm1/convert.ts src/assets/models --out dist/`. |
 | `src/assets/models/animations.ts` | `loadAnimationClips(mesh)` — looks up the generated `<mesh>_animations.ts` registry. |
 
 ## The coding style
@@ -202,6 +205,17 @@ interleaved, with computed normals. On-disk files stay raw/file-faithful; build
 size is handled separately by the `picocad-compact` vite plugin, which re-encodes
 bundled models with `picocad2_compact.ts` (`pc2!` prefix, decoded transparently
 by `parsePicoCad2`) at build time only.
+
+`tools/rm1/` is a compact binary format that **is** measurably smaller — but it
+is deliberately NOT used by this app, and swapping `pc2!` for it is not the
+free win it looks like. Measured across all five models (brotli): `pc2!` 24,593
+· RM1 base64-inlined 20,495 (1.20×) · RM1 as a binary asset 14,727 (1.67×).
+Only the 1.67× path is compelling, and it requires `.rm1` to be fetched rather
+than imported — turning `init` async and breaking the synchronous
+`parse().instantiate()` style that is the whole ergonomic point of this
+framework. It would also replace a locked behaviour that has a test. Revisit
+only if download size starts to matter for real (an online/multiplayer build);
+until then the converter earns its keep as an export path to other projects.
 
 ## Dungeons (map data + part libraries)
 
