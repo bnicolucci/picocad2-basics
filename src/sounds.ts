@@ -19,41 +19,10 @@ export const sounds = {
 
 export type SoundName = keyof typeof sounds;
 
-// A placeholder loop, written by hand against the format. Swap it for a
-// SoundBox export: `rowLen` is its rowLen, `sequence` its song rows (1-based,
-// 0 = a silent bar) and `patterns` its 32-row note columns.
-export const music: Song = {
-    rowLen: 5513,
-    seconds: 16,
-    tracks: [
-        {
-            instrument: [7,0,0,1,255,0,7,0,0,1,255,0,0,100,0,3800,220,2,1400,240,0,0,0,0,0,0,0,0,0],
-            sequence: [1, 1, 1, 1],
-            patterns: [[126,0,0,0,126,0,0,0,126,0,0,0,126,0,0,0,126,0,0,0,126,0,0,0,126,0,0,0,126,0,0,0]],
-        },
-        {
-            instrument: [6,0,0,0,192,2,6,0,12,0,160,2,0,20,150,3000,180,2,900,200,2,60,0,0,0,0,0,0,0],
-            sequence: [1, 1, 2, 1],
-            patterns: [
-                [123,0,0,0,0,0,123,0,130,0,0,0,0,0,123,0,121,0,0,0,0,0,121,0,128,0,0,0,0,0,121,0],
-                [126,0,0,0,0,0,126,0,133,0,0,0,0,0,126,0,123,0,0,0,0,0,123,0,130,0,0,0,0,0,123,0],
-            ],
-        },
-        {
-            instrument: [8,0,0,0,110,1,8,0,7,0,90,1,0,5,80,1800,160,2,2600,180,3,90,0,0,0,1,4,80,0],
-            sequence: [0, 1, 0, 2],
-            patterns: [
-                [135,0,138,0,142,0,138,0,135,0,138,0,142,0,145,0,135,0,138,0,142,0,138,0,133,0,130,0,0,0],
-                [138,0,142,0,145,0,142,0,138,0,142,0,145,0,147,0,138,0,142,0,145,0,142,0,135,0,133,0,0,0],
-            ],
-        },
-        {
-            instrument: [0,0,0,0,0,0,0,0,0,0,0,0,90,2,20,400,120,1,6000,90,0,0,0,0,0,0,0,0,0],
-            sequence: [1, 1, 1, 1],
-            patterns: [[0,0,135,0,0,0,135,0,0,0,135,0,0,0,135,0,0,0,135,0,0,0,135,0,0,0,135,0,0,0,135,0]],
-        },
-    ],
-};
+// Songs live in src/assets/songs — one module each, converted from a SoundBox
+// export. Import the one you want and pass it to playMusic.
+export { bigSong } from './assets/songs/bigSong';
+export { shortSong } from './assets/songs/shortSong';
 
 // Synthesising a sound costs a few ms — enough to drop a frame if it happens
 // mid-game — so each one is rendered once and kept. Call preloadSounds() in
@@ -109,10 +78,19 @@ export function playAt(name: SoundName, x: number, y: number, z: number, volume 
     });
 }
 
-let musicSamples: Stereo | null = null;
+const renderedSongs = new WeakMap<Song, Stereo>();
 
-/** Render (once) and loop the song. Costs a few tens of ms the first time. */
-export function playMusic(volume = 1): void {
-    musicSamples ??= renderSong(music);
-    playSamples(musicSamples, { volume, loop: true });
+/**
+ * Render (once) and loop a song. The first call is the whole song's worth of
+ * synthesis on this thread — roughly 15ms per track-minute, so a short loop is
+ * unnoticeable and a long one is a visible freeze. Call it behind a start
+ * gesture or a loading state, not mid-play.
+ */
+export function playMusic(song: Song, volume = 1): void {
+    let samples = renderedSongs.get(song);
+    if (!samples) {
+        samples = renderSong(song);
+        renderedSongs.set(song, samples);
+    }
+    playSamples(samples, { volume, loop: true });
 }

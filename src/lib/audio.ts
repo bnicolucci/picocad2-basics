@@ -165,9 +165,12 @@ function renderNote(dst: Stereo, writePos: number, rowLen: number, note: number,
     }
 }
 
-/** Ping-pong delay: each channel feeds the other, `shift` samples later. */
+/** Ping-pong delay: each channel feeds the other, `shift` samples later.
+    A shift of 0 is NOT a no-op — the channels cross-feed in place, and the
+    second line reads the value the first just wrote. Only a zero amount can be
+    skipped. */
 function applyDelay(dst: Stereo, shift: number, amount: number): void {
-    if (!shift || !amount) return;
+    if (!amount) return;
     for (let i = 0; i < dst.left.length - shift; i++) {
         dst.left[i + shift] += dst.right[i] * amount;
         dst.right[i + shift] += dst.left[i] * amount;

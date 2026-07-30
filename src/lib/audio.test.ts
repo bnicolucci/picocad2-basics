@@ -43,6 +43,17 @@ describe('renderSound', () => {
         expect(peak(wet.left.subarray(dry.left.length))).toBeGreaterThan(0);
     });
 
+    // A delay TIME of 0 with a non-zero amount is not "no delay" — the channels
+    // cross-feed in place, which audibly widens the sound. Skipping that as an
+    // optimisation silently changed instruments that rely on it.
+    test('a zero delay time still cross-feeds when the amount is non-zero', () => {
+        const zeroTime: Instrument = [8,0,0,0,192,0, 8,0,0,0,0,0, 0, 100,2000,4000, 200, 0,0,0, 0,60, 0,0, 0,0,0,0,0];
+        const dry = renderSound(135, BLIP);
+        const wet = renderSound(135, zeroTime);
+        expect(wet.left.length).toBe(dry.left.length); // no tail is added
+        expect(peak(wet.left)).not.toBe(peak(dry.left)); // but the signal changed
+    });
+
     // Every voice is written into both channels, so a sound is never one-sided
     // unless the instrument's own auto-pan says so.
     test('writes both channels', () => {

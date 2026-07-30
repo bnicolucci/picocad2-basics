@@ -8,7 +8,7 @@ import type { Object3D } from './lib/object3d';
 import type { PicoCadAnimationClip } from './lib/picocad2';
 import { cube, plane, sphere } from './primitives';
 import { camera, run, scene } from './run';
-import { play, playAt, playMusic, preloadSounds } from './sounds';
+import { play, playAt, playMusic, preloadSounds, shortSong } from './sounds';
 
 // Canvas size, aspect, colours, retroScale: the PAGE config in index.html.
 
@@ -68,9 +68,9 @@ let musicStarted = false;
 
 function update(dt: number, t: number): void {
     const m = move();
-    pig.position.x = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, pig.position.x + m.x * PIG_SPEED * dt));
-    pig.position.z = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, pig.position.z + m.z * PIG_SPEED * dt));
-    faceToward(pig, m.x, m.z);
+    primitivething.position.x = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, primitivething.position.x + m.x * PIG_SPEED * dt));
+    primitivething.position.z = Math.min(FLOOR_EDGE, Math.max(-FLOOR_EDGE, primitivething.position.z + m.z * PIG_SPEED * dt));
+    faceToward(primitivething, m.x, m.z);
 
     if (pressed('shoot') && tankClips.shoot) {
         tankAnim?.stop();
@@ -96,7 +96,7 @@ function update(dt: number, t: number): void {
 
     if (!musicStarted && audioReady()) {
         musicStarted = true;
-        playMusic(0.35);
+        playMusic(shortSong, 0.5);
     }
 }
 
