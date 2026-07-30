@@ -465,8 +465,11 @@ export class Renderer {
     }
 }
 
-// UV bounding rect across all of a model's vertices (uv at floats 3,4 of 10).
-function computeUvBounds(meshes: GpuMesh[]): [number, number, number, number] {
+/** UV bounding rect across all of a model's vertices (uv at floats 3,4 of 10)
+    — the patch of texture the model actually samples, and the source rect a
+    per-instance `uv` transform maps out of. Exported so the entity editor can
+    show it on the texture. */
+export function computeUvBounds(meshes: GpuMesh[]): [number, number, number, number] {
     let minU = Infinity;
     let minV = Infinity;
     let maxU = -Infinity;

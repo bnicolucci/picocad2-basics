@@ -15,10 +15,11 @@ import { restoreSavedMessage, saveGenerated, statusReporter } from './lib/editor
 import { createEditorViewport } from './lib/editorViewport';
 import type { EntityBlueprint, EntityPart } from './lib/entity';
 import { instantiateEntity } from './lib/entity';
-import { PicoCad2Loader } from './lib/loader';
+import { textureRgba, tileAtPixel, tileGrid } from './lib/editorTexture';
+import { PicoCad2Loader, type PicoCadModel } from './lib/loader';
 import { type Forward, Object3D } from './lib/object3d';
 import { modelBaseName } from './lib/picocad2_animation_extract';
-import type { UvTransform } from './lib/renderer';
+import { computeUvBounds, type UvTransform } from './lib/renderer';
 
 const PRIMITIVE_FILES = import.meta.glob(
     ['./assets/primitives/*.txt', '!./assets/primitives/*-anim-*.txt', '!./assets/primitives/*_anim_*.txt'],
@@ -201,6 +202,8 @@ async function rebuildPreview(frame = false): Promise<void> {
         setStatus(`Missing mesh file(s): ${[...new Set(unresolved)].join(', ')}`, true);
         return;
     }
+    // The picker needs the mesh text, which may only have arrived just now.
+    drawUv();
 
     try {
         entityGroup = instantiateEntity(toBlueprint(entity), (mesh) => textCache.get(mesh));
@@ -242,6 +245,10 @@ function num(id: string): HTMLInputElement {
     return $<HTMLInputElement>(id);
 }
 
+// A bigger tile size means fewer tiles, which can leave the chosen one off the
+// grid — so this one input needs its own follow-up.
+const tileSizeInput = num('l-tile-size');
+
 const transformInputs: [HTMLInputElement, (p: WorkingPart, v: number | null) => void, (p: WorkingPart) => number | null][] = [
     [num('t-pos-x'), (p, v) => { p.pos[0] = v ?? 0; }, (p) => p.pos[0]],
     [num('t-pos-y'), (p, v) => { p.pos[1] = v ?? 0; }, (p) => p.pos[1]],
@@ -255,7 +262,7 @@ const transformInputs: [HTMLInputElement, (p: WorkingPart, v: number | null) => 
     [num('l-color'), (p, v) => { p.color = v; }, (p) => p.color],
     [num('l-tile-u'), (p, v) => { p.tileU = v; }, (p) => p.tileU],
     [num('l-tile-v'), (p, v) => { p.tileV = v; }, (p) => p.tileV],
-    [num('l-tile-size'), (p, v) => { p.tileSize = v; }, (p) => p.tileSize],
+    [tileSizeInput, (p, v) => { p.tileSize = v; }, (p) => p.tileSize],
     [num('l-repeat-u'), (p, v) => { p.repeatU = v; }, (p) => p.repeatU],
     [num('l-repeat-v'), (p, v) => { p.repeatV = v; }, (p) => p.repeatV],
 ];
@@ -266,8 +273,25 @@ for (const [input, set] of transformInputs) {
         if (!part) return;
         const v = input.value.trim() === '' ? null : Number(input.value);
         set(part, v !== null && Number.isFinite(v) ? v : null);
+        if (input === tileSizeInput) {
+            clampTile(part);
+            fillPartInputs(); // redraws the picker too
+        } else {
+            drawUv();
+        }
         void rebuildPreview();
     });
+}
+
+/** Pull a chosen tile back inside the grid — the grid shrinks when the tile
+    size grows, and an off-grid tile samples nothing. */
+function clampTile(part: WorkingPart): void {
+    if (part.tileU === null || part.tileV === null) return;
+    const model = modelFor(part.mesh);
+    if (!model) return;
+    const { cols, rows } = tileGrid(model.texture, part.tileSize ?? DEFAULT_TILE_SIZE);
+    part.tileU = Math.min(cols, Math.max(1, part.tileU));
+    part.tileV = Math.min(rows, Math.max(1, part.tileV));
 }
 
 function fillPartInputs(): void {
@@ -277,7 +301,145 @@ function fillPartInputs(): void {
         const value = part ? get(part) : null;
         input.value = value === null ? '' : String(value);
     }
+    drawUv();
 }
+
+// --- UV picker ----------------------------------------------------------
+// The part's texture, drawn at native size and CSS-scaled up, with the tile
+// grid over it. A `uv.tile` is a 1-based column/row into that grid, so picking
+// one is just working out which cell was clicked — the numbers above the canvas
+// and the canvas itself are two views of the same two values.
+
+const uvCanvas = $<HTMLCanvasElement>('uv-canvas');
+const uvCtx = uvCanvas.getContext('2d')!;
+const uvHint = $('uv-hint');
+const uvClear = $<HTMLButtonElement>('uv-clear');
+
+const DEFAULT_TILE_SIZE = 16;
+const uvLoader = new PicoCad2Loader();
+const modelCache = new Map<string, PicoCadModel>();
+
+/** The parsed model for a mesh, once its text has been loaded by the preview. */
+function modelFor(mesh: string): PicoCadModel | null {
+    const cached = modelCache.get(mesh);
+    if (cached) return cached;
+    const text = textCache.get(mesh);
+    if (!text) return null;
+    try {
+        const model = uvLoader.parse(text);
+        modelCache.set(mesh, model);
+        return model;
+    } catch {
+        return null;
+    }
+}
+
+function drawUv(): void {
+    const part = current?.parts[selectedPart] ?? null;
+    const model = part ? modelFor(part.mesh) : null;
+
+    if (!part || !model) {
+        uvCtx.clearRect(0, 0, uvCanvas.width, uvCanvas.height);
+        uvCanvas.classList.add('disabled');
+        uvHint.textContent = part ? 'Loading texture…' : 'Select a part to pick its UV.';
+        uvClear.disabled = true;
+        return;
+    }
+    uvCanvas.classList.remove('disabled');
+
+    const tex = model.texture;
+    if (uvCanvas.width !== tex.width || uvCanvas.height !== tex.height) {
+        uvCanvas.width = tex.width;
+        uvCanvas.height = tex.height;
+    }
+    const image = new ImageData(textureRgba(tex), tex.width, tex.height);
+    uvCtx.putImageData(image, 0, 0);
+
+    const size = Math.max(1, part.tileSize ?? DEFAULT_TILE_SIZE);
+    const { cols, rows } = tileGrid(tex, size);
+    const hasTile = part.tileU !== null && part.tileV !== null;
+
+    // Everything outside the chosen tile is dimmed, then that tile is put back
+    // at full brightness — the same pixels, so what you see is what samples.
+    if (hasTile) {
+        const x = (part.tileU! - 1) * size;
+        const y = (part.tileV! - 1) * size;
+        uvCtx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+        uvCtx.fillRect(0, 0, tex.width, tex.height);
+        uvCtx.putImageData(image, 0, 0, x, y, size, size);
+    }
+
+    uvCtx.lineWidth = 1;
+    uvCtx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
+    uvCtx.beginPath();
+    for (let c = 1; c < cols; c++) {
+        uvCtx.moveTo(c * size + 0.5, 0);
+        uvCtx.lineTo(c * size + 0.5, rows * size);
+    }
+    for (let r = 1; r < rows; r++) {
+        uvCtx.moveTo(0, r * size + 0.5);
+        uvCtx.lineTo(cols * size, r * size + 0.5);
+    }
+    uvCtx.stroke();
+
+    if (hasTile) {
+        const offGrid = part.tileU! > cols || part.tileV! > rows;
+        uvCtx.strokeStyle = offGrid ? '#e06060' : '#ffd23c';
+        uvCtx.strokeRect((part.tileU! - 1) * size + 0.5, (part.tileV! - 1) * size + 0.5, size - 1, size - 1);
+        uvHint.textContent = offGrid
+            ? `tile ${part.tileU},${part.tileV} is outside the ${cols}×${rows} grid — it samples nothing`
+            : `tile ${part.tileU},${part.tileV} · ${size}px · grid ${cols}×${rows}`;
+    } else {
+        // No override: outline the patch this model samples on its own, so you
+        // can see what you are about to replace.
+        const [bu, bv, bw, bh] = computeUvBounds(model.meshes);
+        uvCtx.strokeStyle = '#6ab0ff';
+        uvCtx.setLineDash([2, 2]);
+        uvCtx.strokeRect(bu * tex.width + 0.5, bv * tex.height + 0.5, Math.max(1, bw * tex.width) - 1, Math.max(1, bh * tex.height) - 1);
+        uvCtx.setLineDash([]);
+        uvHint.textContent = `model's own UVs (dashed) · click a tile to override · grid ${cols}×${rows}`;
+    }
+    uvClear.disabled = !hasTile;
+}
+
+function pickTile(event: PointerEvent): void {
+    const part = current?.parts[selectedPart];
+    const model = part ? modelFor(part.mesh) : null;
+    if (!part || !model) return;
+
+    // The canvas is drawn at texture size and stretched by CSS, so go through
+    // its displayed rect rather than assuming a 1:1 pixel ratio.
+    const rect = uvCanvas.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * uvCanvas.width;
+    const y = ((event.clientY - rect.top) / rect.height) * uvCanvas.height;
+    const { u, v } = tileAtPixel(x, y, part.tileSize ?? DEFAULT_TILE_SIZE, model.texture);
+    if (part.tileU === u && part.tileV === v) return;
+
+    part.tileU = u;
+    part.tileV = v;
+    fillPartInputs();
+    void rebuildPreview();
+}
+
+uvCanvas.addEventListener('pointerdown', (event) => {
+    if (!current?.parts[selectedPart]) return;
+    uvCanvas.setPointerCapture(event.pointerId);
+    pickTile(event);
+});
+uvCanvas.addEventListener('pointermove', (event) => {
+    if (uvCanvas.hasPointerCapture(event.pointerId)) pickTile(event);
+});
+uvCanvas.addEventListener('pointerup', (event) => uvCanvas.releasePointerCapture(event.pointerId));
+
+uvClear.addEventListener('click', () => {
+    const part = current?.parts[selectedPart];
+    if (!part) return;
+    part.tileU = null;
+    part.tileV = null;
+    part.tileSize = null;
+    fillPartInputs();
+    void rebuildPreview();
+});
 
 function renderParts(): void {
     partListEl.replaceChildren();

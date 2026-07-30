@@ -61,6 +61,16 @@
       .part-mini:hover { background: #333; color: #ddd; }
 
       .grid4 { display: grid; grid-template-columns: 34px repeat(3, 1fr); gap: 5px; align-items: center; }
+
+      /* The model's texture, drawn at its native pixel size and CSS-scaled, so
+         height: auto keeps whatever aspect the texture actually has. */
+      #uv-canvas {
+        width: 100%; height: auto; display: block; margin-top: 7px;
+        background: #0c0e12; border: 1px solid #2f2f2f; border-radius: 3px;
+        image-rendering: pixelated; cursor: crosshair; touch-action: none;
+      }
+      #uv-canvas.disabled { opacity: 0.35; cursor: default; }
+      #uv-hint { font: 10px monospace; margin: 5px 0 6px; min-height: 14px; }
       .grid4 label, .grid2 label { color: #777; font: 10px monospace; }
       .grid2 { display: grid; grid-template-columns: 60px 1fr; gap: 5px; align-items: center; }
       .num {
@@ -162,6 +172,9 @@
               <input id="l-repeat-v" class="num" type="number" min="1" step="1" placeholder="v" />
               <div></div>
             </div>
+            <canvas id="uv-canvas" title="Click or drag to pick the tile"></canvas>
+            <div id="uv-hint" class="muted"></div>
+            <button id="uv-clear" class="btn" type="button" title="Go back to the model's own UVs">Clear tile</button>
           </div>
 
           <div class="section">
