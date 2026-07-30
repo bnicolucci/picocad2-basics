@@ -63,6 +63,23 @@
 
       .grid4 { display: grid; grid-template-columns: 34px repeat(3, 1fr); gap: 5px; align-items: center; }
 
+      /* Solid Colour leads with a None chip, so 9 across puts 8 colours on the
+         second row; a bare 16-colour palette sits as a clean 8 x 2. */
+      .swatch-row { display: grid; grid-template-columns: repeat(9, 1fr); gap: 3px; margin: 4px 0 2px; }
+      .swatch-row.palette { grid-template-columns: repeat(8, 1fr); }
+      .color-swatch {
+        aspect-ratio: 1; border-radius: 2px; border: 2px solid #2c2c2c;
+        padding: 0; cursor: pointer; min-width: 0;
+      }
+      .color-swatch:hover { border-color: #777; }
+      .color-swatch.active { border-color: #ffd23c; box-shadow: 0 0 0 1px #ffd23c inset; }
+      /* "no solid colour" — the part keeps its texture. */
+      .color-swatch.none {
+        background: repeating-linear-gradient(45deg, #1a1a1a 0 3px, #2e2e2e 3px 6px);
+      }
+      .swatch-row.readonly .color-swatch { cursor: default; }
+      .swatch-row.readonly .color-swatch:hover { border-color: #2c2c2c; }
+
       /* The model's texture, drawn at its native pixel size and CSS-scaled, so
          height: auto keeps whatever aspect the texture actually has. */
       #uv-canvas {
@@ -159,11 +176,19 @@
           </div>
 
           <div class="section">
+            <div class="section-title">Entity Palette</div>
+            <div class="field-label">base — the 16 colours these primitives are authored against</div>
+            <div id="base-palette" class="swatch-row"></div>
+            <label class="field-label" for="palette-select">compare with another palette</label>
+            <select id="palette-select"></select>
+            <div id="palette-preview" class="swatch-row"></div>
+            <div id="palette-note" class="muted"></div>
+          </div>
+
+          <div class="section">
             <div class="section-title">Look</div>
-            <div class="grid2">
-              <label>Colour</label>
-              <input id="l-color" class="num" type="number" min="0" max="15" step="1" placeholder="—" />
-            </div>
+            <label class="field-label">Solid Colour — replaces the texture on this part</label>
+            <div id="color-swatches" class="swatch-row"></div>
             <div class="grid4">
               <label>Tile</label>
               <input id="l-tile-u" class="num" type="number" min="1" step="1" placeholder="u" />

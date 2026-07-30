@@ -19,6 +19,8 @@ import { textureRgba, tileAtPixel, tileGrid } from './lib/editorTexture';
 import { PicoCad2Loader, type PicoCadModel } from './lib/loader';
 import { type Forward, Object3D } from './lib/object3d';
 import { modelBaseName } from './lib/picocad2_animation_extract';
+import { picoCadPalettes } from './assets/palettes/picocad_palettes';
+import type { BuiltTexture } from './lib/picocad2';
 import { computeUvBounds, type UvTransform } from './lib/renderer';
 
 const PRIMITIVE_FILES = import.meta.glob(
@@ -291,7 +293,6 @@ const transformInputs: [HTMLInputElement, (p: WorkingPart, v: number | null) => 
     [num('t-scale-x'), (p, v) => { p.scale[0] = v ?? 1; }, (p) => p.scale[0]],
     [num('t-scale-y'), (p, v) => { p.scale[1] = v ?? 1; }, (p) => p.scale[1]],
     [num('t-scale-z'), (p, v) => { p.scale[2] = v ?? 1; }, (p) => p.scale[2]],
-    [num('l-color'), (p, v) => { p.color = v; }, (p) => p.color],
     [num('l-tile-u'), (p, v) => { p.tileU = v; }, (p) => p.tileU],
     [num('l-tile-v'), (p, v) => { p.tileV = v; }, (p) => p.tileV],
     [tileSizeInput, (p, v) => { p.tileSize = v; }, (p) => p.tileSize],
@@ -333,8 +334,93 @@ function fillPartInputs(): void {
         const value = part ? get(part) : null;
         input.value = value === null ? '' : String(value);
     }
+    renderColorSwatches();
     drawUv();
 }
+
+// --- solid colour -------------------------------------------------------
+// `color` is a palette index, so a number box means guessing what 7 looks like.
+// The swatches are drawn from the part's OWN model palette, so they are the
+// colours you will actually get.
+
+const colorSwatchesEl = $('color-swatches');
+
+/** Palette row 0 (the lit colour) of a model, as 16 CSS colours. */
+function paletteCss(texture: BuiltTexture): string[] {
+    return Array.from({ length: 16 }, (_, i) => {
+        const o = i * 4;
+        return `rgb(${texture.palettePixels[o]}, ${texture.palettePixels[o + 1]}, ${texture.palettePixels[o + 2]})`;
+    });
+}
+
+function renderColorSwatches(): void {
+    colorSwatchesEl.replaceChildren();
+    const part = current?.parts[selectedPart] ?? null;
+    if (!part) return;
+    const texture = modelFor(part.mesh)?.texture ?? gizmoModel.texture;
+    const colors = paletteCss(texture);
+
+    const swatch = (label: string, title: string, value: number | null, css?: string): HTMLButtonElement => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `color-swatch${value === null ? ' none' : ''}${part.color === value ? ' active' : ''}`;
+        button.title = title;
+        button.setAttribute('aria-label', label);
+        if (css) button.style.background = css;
+        button.addEventListener('click', () => {
+            part.color = value;
+            renderColorSwatches();
+            void rebuildPreview();
+        });
+        return button;
+    };
+
+    colorSwatchesEl.appendChild(swatch('none', 'None — keep the texture', null));
+    colors.forEach((css, index) => {
+        colorSwatchesEl.appendChild(swatch(String(index), `Colour ${index}`, index, css));
+    });
+}
+
+// --- entity palette -----------------------------------------------------
+// The primitives are authored against one 16-colour palette; this shows it, and
+// lets you hold any of the other picoCAD palettes up against it.
+
+const basePaletteEl = $('base-palette');
+const paletteSelect = $<HTMLSelectElement>('palette-select');
+const palettePreviewEl = $('palette-preview');
+const paletteNoteEl = $('palette-note');
+
+function fillSwatchRow(el: HTMLElement, colors: string[], titles: (i: number) => string): void {
+    el.replaceChildren();
+    el.classList.add('readonly', 'palette');
+    colors.forEach((css, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'color-swatch';
+        chip.style.background = css;
+        chip.title = titles(index);
+        el.appendChild(chip);
+    });
+}
+
+function renderPalettes(): void {
+    const base = paletteCss(gizmoModel.texture);
+    fillSwatchRow(basePaletteEl, base, (i) => `${i}: ${base[i]}`);
+
+    const chosen = picoCadPalettes[paletteSelect.value as keyof typeof picoCadPalettes];
+    if (!chosen) return;
+    const colors = chosen.colors.map(([r, g, b]) => `rgb(${r}, ${g}, ${b})`);
+    fillSwatchRow(palettePreviewEl, colors, (i) => `${i}: ${colors[i]}`);
+    paletteNoteEl.textContent = `${chosen.name} — ${chosen.author}. Reference only: a part's colours come from its own model file.`;
+}
+
+for (const [id, palette] of Object.entries(picoCadPalettes)) {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = palette.name;
+    paletteSelect.appendChild(option);
+}
+paletteSelect.addEventListener('change', renderPalettes);
+renderPalettes();
 
 // --- UV picker ----------------------------------------------------------
 // The part's texture, drawn at native size and CSS-scaled up, with the tile
