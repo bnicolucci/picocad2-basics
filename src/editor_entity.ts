@@ -139,6 +139,34 @@ const setWarning = (message: string): void => {
 };
 const SAVED_MESSAGE_KEY = 'entity-editor:saved';
 
+// Saving rewrites a file this page imports, so Vite reloads the page under us.
+// The selection has to be carried across by hand or the reload drops you back
+// on the first entity — invisible while there is only one, and infuriating the
+// moment there are two.
+const SELECTION_KEY = 'entity-editor:selection';
+
+function rememberSelection(): void {
+    if (!current) return;
+    sessionStorage.setItem(SELECTION_KEY, JSON.stringify({ entity: current.name, part: selectedPart }));
+}
+
+/** What to reopen after a save reload. Keyed by NAME, not index, so it survives
+    entities being renamed into a different order or added alongside. */
+function takeRememberedSelection(): { entity: WorkingEntity; part: number } | null {
+    const raw = sessionStorage.getItem(SELECTION_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(SELECTION_KEY);
+    try {
+        const saved = JSON.parse(raw) as { entity?: string; part?: number };
+        const entity = list.find((e) => e.name === saved.entity);
+        if (!entity) return null;
+        const valid = typeof saved.part === 'number' && saved.part >= 0 && saved.part < entity.parts.length;
+        return { entity, part: valid ? (saved.part as number) : entity.parts.length > 0 ? 0 : -1 };
+    } catch {
+        return null; // a malformed hand-off just means the default selection
+    }
+}
+
 // --- viewport -----------------------------------------------------------
 
 const viewport = createEditorViewport($<HTMLCanvasElement>('viewport'), { background: '#12161b' });
@@ -808,6 +836,7 @@ $('save-btn').addEventListener('click', () => {
             }
         }
     }
+    rememberSelection();
     void saveGenerated(
         setStatus,
         '/__editor/save-entities',
@@ -817,7 +846,13 @@ $('save-btn').addEventListener('click', () => {
     );
 });
 
-switchTo(current);
+const reopen = takeRememberedSelection();
+switchTo(reopen?.entity ?? current);
+if (reopen && reopen.part !== selectedPart) {
+    selectedPart = reopen.part;
+    renderParts();
+    fillPartInputs();
+}
 restoreSavedMessage(setStatus, SAVED_MESSAGE_KEY);
 
 Object.assign(window as unknown as Record<string, unknown>, { viewport });
