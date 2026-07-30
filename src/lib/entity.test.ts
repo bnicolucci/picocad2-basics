@@ -89,9 +89,11 @@ describe('instantiateEntity', () => {
         expect(group.forward).toBe('x-');
     });
 
-    // A part instantiates a whole model, whose own node graph hangs beneath it —
-    // so "the parts under X" means X's children that are model roots.
-    const partsUnder = (object: Object3D): Object3D[] => object.children.filter((child) => child.model !== undefined);
+    // A part node holds its mesh (a model root, which carries `.model`) plus any
+    // child parts. So "the parts under X" is X's children that are not meshes.
+    const partsUnder = (object: Object3D): Object3D[] => object.children.filter((child) => child.model === undefined);
+    const meshOf = (node: Object3D): Object3D => node.children.find((child) => child.model !== undefined)!;
+    const xyz = (v: { x: number; y: number; z: number }): number[] => [v.x, v.y, v.z];
 
     // Parts nest so a complex thing can be moved as assemblies: rotate the
     // turret and its barrel comes along.
@@ -132,6 +134,35 @@ describe('instantiateEntity', () => {
         expect(partsUnder(group)).toHaveLength(2);
     });
 
+    // Scale is the one transform that must NOT inherit. In a normal scene graph
+    // it multiplies into every descendant, so shaping a part would distort
+    // everything bolted to it — which is why a part's scale lives on its mesh
+    // rather than on the node children hang off.
+    test("a parent's scale shapes its own mesh only", () => {
+        const group = instantiateEntity({ parts: [{ mesh: 'a', scale: [2, 3, 4] }, { mesh: 'a', parent: 0 }] }, meshText);
+        const parent = partsUnder(group)[0];
+
+        expect(xyz(meshOf(parent).scale)).toEqual([2, 3, 4]);
+        expect(xyz(parent.scale)).toEqual([1, 1, 1]);
+
+        // Nothing between the child's mesh and the root scales it.
+        const child = partsUnder(parent)[0];
+        expect(xyz(child.scale)).toEqual([1, 1, 1]);
+        expect(xyz(meshOf(child).scale)).toEqual([1, 1, 1]);
+    });
+
+    // Position and rotation still carry down — that is what parenting is for.
+    test('a parent\'s position and rotation do carry to its children', () => {
+        const group = instantiateEntity(
+            { parts: [{ mesh: 'a', pos: [1, 0, 0], rot: [0, 90, 0], scale: [5, 5, 5] }, { mesh: 'a', parent: 0 }] },
+            meshText,
+        );
+        const parent = partsUnder(group)[0];
+        expect(xyz(parent.position)).toEqual([1, 0, 0]);
+        expect(parent.rotation.y).toBeCloseTo(Math.PI / 2);
+        expect(partsUnder(parent)[0].parent).toBe(parent);
+    });
+
     test('defaults to facing z+', () => {
         expect(instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText).forward).toBe('z+');
     });
@@ -140,14 +171,15 @@ describe('instantiateEntity', () => {
     test('converts part rotation from degrees to radians', () => {
         const group = instantiateEntity({ parts: [{ mesh: 'a', pos: [1, 2, 3], rot: [0, 90, 0], scale: [2, 2, 2] }] }, meshText);
         const part = group.children[0];
-        expect([part.position.x, part.position.y, part.position.z]).toEqual([1, 2, 3]);
+        expect(xyz(part.position)).toEqual([1, 2, 3]);
         expect(part.rotation.y).toBeCloseTo(Math.PI / 2);
-        expect(part.scale.x).toBe(2);
+        // Scale sits on the mesh, not the node, so it cannot reach children.
+        expect(meshOf(part).scale.x).toBe(2);
     });
 
     test('parts of the same mesh share one parsed model, so they batch', () => {
         const group = instantiateEntity({ parts: [{ mesh: 'a' }, { mesh: 'a' }] }, meshText);
-        expect(group.children[0].model!.model).toBe(group.children[1].model!.model);
+        expect(meshOf(group.children[0]).model!.model).toBe(meshOf(group.children[1]).model!.model);
     });
 
     test('a missing mesh throws with the part name, rather than rendering nothing', () => {

@@ -60,21 +60,30 @@ export function instantiateEntity(blueprint: EntityBlueprint, meshText: (mesh: s
     group.forward = blueprint.forward ?? 'z+';
 
     const parts = blueprint.parts;
-    const objects = parts.map((part) => {
+    // A part is a node carrying position and rotation, with its mesh inside it
+    // carrying the scale. Children hang off the node, so a parent's scale
+    // shapes only its own geometry: squashing a cube into a slab must not
+    // squash the cylinder bolted to it. Position and rotation still carry down,
+    // which is the point of parenting — rotate the turret, the barrel follows.
+    // (To scale a whole entity, scale the group this returns.)
+    const nodes = parts.map((part) => {
         const text = meshText(part.mesh);
         if (text === undefined) throw new Error(`Entity part mesh "${part.mesh}" has no model text`);
-        const object = modelFor(text).instantiate({ color: part.color, uv: part.uv });
-        if (part.pos) object.position.set(part.pos[0], part.pos[1], part.pos[2]);
-        if (part.rot) object.rotation.set(part.rot[0] * DEG, part.rot[1] * DEG, part.rot[2] * DEG);
-        if (part.scale) object.scale.set(part.scale[0], part.scale[1], part.scale[2]);
-        return object;
+        const mesh = modelFor(text).instantiate({ color: part.color, uv: part.uv });
+        if (part.scale) mesh.scale.set(part.scale[0], part.scale[1], part.scale[2]);
+
+        const node = new Object3D();
+        if (part.pos) node.position.set(part.pos[0], part.pos[1], part.pos[2]);
+        if (part.rot) node.rotation.set(part.rot[0] * DEG, part.rot[1] * DEG, part.rot[2] * DEG);
+        node.add(mesh);
+        return node;
     });
 
     // Linked after building them all, so a part may name a parent that comes
     // later in the array.
     parts.forEach((_, index) => {
         const parent = resolveParent(parts, index);
-        (parent === null ? group : objects[parent]).add(objects[index]);
+        (parent === null ? group : nodes[parent]).add(nodes[index]);
     });
     return group;
 }
