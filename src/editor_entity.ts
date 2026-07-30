@@ -14,7 +14,7 @@ import cubeText from './assets/primitives/mesh_cube.txt?raw';
 import { restoreSavedMessage, saveGenerated, statusReporter } from './lib/editorPage';
 import { createEditorViewport } from './lib/editorViewport';
 import type { EntityBlueprint, EntityPart } from './lib/entity';
-import { instantiateEntity } from './lib/entity';
+import { createsCycle, insertWithParents, instantiateEntity, removeWithParents, resolveParent } from './lib/entity';
 import { textureRgba, tileAtPixel, tileGrid } from './lib/editorTexture';
 import { PicoCad2Loader, type PicoCadModel } from './lib/loader';
 import { type Forward, Object3D } from './lib/object3d';
@@ -53,6 +53,8 @@ type WorkingPart = {
     tileSize: number | null;
     repeatU: number | null;
     repeatV: number | null;
+    /** Index of the part this hangs off, or null for the entity root. */
+    parent: number | null;
 };
 type WorkingEntity = {
     name: string;
@@ -78,6 +80,7 @@ function toWorkingPart(part: EntityPart): WorkingPart {
         tileSize: part.uv?.tile?.size ?? null,
         repeatU: part.uv?.repeatU ?? null,
         repeatV: part.uv?.repeatV ?? null,
+        parent: part.parent ?? null,
     };
 }
 
@@ -95,6 +98,7 @@ function toEntityPart(part: WorkingPart): EntityPart {
         ...(part.scale.some((n) => n !== 1) ? { scale: part.scale } : {}),
         ...(part.color !== null ? { color: part.color } : {}),
         ...(uv.tile || uv.repeatU !== undefined || uv.repeatV !== undefined ? { uv } : {}),
+        ...(part.parent !== null ? { parent: part.parent } : {}),
     };
 }
 
@@ -441,55 +445,138 @@ uvClear.addEventListener('click', () => {
     void rebuildPreview();
 });
 
+// --- outliner -----------------------------------------------------------
+// Parents are stored as indices into the parts array, so anything that shifts
+// those indices has to carry the references with it. Getting this wrong
+// silently re-parents unrelated parts, so insert and remove go through here.
+
+/** The parent the runtime will actually use — same rules, so the outliner can
+    never show a nesting the game would not build. */
+function effectiveParent(parts: WorkingPart[], index: number): number | null {
+    return resolveParent(
+        parts.map((p) => ({ mesh: p.mesh, ...(p.parent !== null ? { parent: p.parent } : {}) })),
+        index,
+    );
+}
+
+function setParent(index: number, parent: number | null): void {
+    const entity = current;
+    if (!entity || index === parent) return;
+    if (parent !== null && createsCycle(entity.parts, index, parent)) {
+        setWarning(`Part ${index} is already above part ${parent} — that would loop.`);
+        return;
+    }
+    entity.parts[index].parent = parent;
+    renderParts();
+    void rebuildPreview();
+}
+
+let dragIndex: number | null = null;
+
+function partRow(entity: WorkingEntity, index: number, depth: number): HTMLDivElement {
+    const part = entity.parts[index];
+    const row = document.createElement('div');
+    row.className = `part-row${index === selectedPart ? ' active' : ''}`;
+    row.style.marginLeft = `${depth * 12}px`;
+    row.draggable = true;
+
+    const name = document.createElement('span');
+    name.className = 'part-name';
+    name.textContent = `${index}: ${part.mesh}`;
+    row.appendChild(name);
+    row.addEventListener('click', () => {
+        selectedPart = index;
+        renderParts();
+        fillPartInputs();
+    });
+
+    row.addEventListener('dragstart', (event) => {
+        dragIndex = index;
+        event.dataTransfer?.setData('text/plain', String(index));
+    });
+    row.addEventListener('dragend', () => {
+        dragIndex = null;
+        renderParts();
+    });
+    row.addEventListener('dragover', (event) => {
+        if (dragIndex === null || dragIndex === index) return;
+        event.preventDefault();
+        row.classList.add('drop-into');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop-into'));
+    row.addEventListener('drop', (event) => {
+        event.preventDefault();
+        event.stopPropagation(); // otherwise the list below unparents it again
+        row.classList.remove('drop-into');
+        if (dragIndex !== null) setParent(dragIndex, index);
+        dragIndex = null;
+    });
+
+    const dup = document.createElement('button');
+    dup.className = 'part-mini';
+    dup.type = 'button';
+    dup.textContent = '⧉';
+    dup.title = 'Duplicate part';
+    dup.addEventListener('click', (e) => {
+        e.stopPropagation();
+        insertWithParents(entity.parts, index + 1, structuredClone(part));
+        selectedPart = index + 1;
+        renderParts();
+        fillPartInputs();
+        void rebuildPreview();
+    });
+
+    const del = document.createElement('button');
+    del.className = 'part-mini';
+    del.type = 'button';
+    del.textContent = '×';
+    del.title = 'Remove part (its children move up)';
+    del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeWithParents(entity.parts, index);
+        selectedPart = Math.min(selectedPart, entity.parts.length - 1);
+        renderParts();
+        fillPartInputs();
+        void rebuildPreview();
+    });
+
+    row.append(dup, del);
+    return row;
+}
+
 function renderParts(): void {
     partListEl.replaceChildren();
     const entity = current;
     if (!entity) return;
-    entity.parts.forEach((part, index) => {
-        const row = document.createElement('div');
-        row.className = `part-row${index === selectedPart ? ' active' : ''}`;
-        const name = document.createElement('span');
-        name.className = 'part-name';
-        name.textContent = `${index}: ${part.mesh}`;
-        row.appendChild(name);
-        row.addEventListener('click', () => {
-            selectedPart = index;
-            renderParts();
-            fillPartInputs();
-        });
 
-        const dup = document.createElement('button');
-        dup.className = 'part-mini';
-        dup.type = 'button';
-        dup.textContent = '⧉';
-        dup.title = 'Duplicate part';
-        dup.addEventListener('click', (e) => {
-            e.stopPropagation();
-            entity.parts.splice(index + 1, 0, structuredClone(part));
-            selectedPart = index + 1;
-            renderParts();
-            fillPartInputs();
-            void rebuildPreview();
-        });
-
-        const del = document.createElement('button');
-        del.className = 'part-mini';
-        del.type = 'button';
-        del.textContent = '×';
-        del.title = 'Remove part';
-        del.addEventListener('click', (e) => {
-            e.stopPropagation();
-            entity.parts.splice(index, 1);
-            selectedPart = Math.min(selectedPart, entity.parts.length - 1);
-            renderParts();
-            fillPartInputs();
-            void rebuildPreview();
-        });
-
-        row.append(dup, del);
-        partListEl.appendChild(row);
+    // Group by the parent the runtime would use, then walk roots downwards so
+    // the list reads as the tree it builds.
+    const childrenOf = new Map<number | null, number[]>();
+    entity.parts.forEach((_, index) => {
+        const key = effectiveParent(entity.parts, index);
+        const bucket = childrenOf.get(key);
+        if (bucket) bucket.push(index);
+        else childrenOf.set(key, [index]);
     });
+
+    const emit = (parent: number | null, depth: number): void => {
+        for (const index of childrenOf.get(parent) ?? []) {
+            partListEl.appendChild(partRow(entity, index, depth));
+            emit(index, depth + 1);
+        }
+    };
+    emit(null, 0);
 }
+
+// Dropping on the empty space below the rows detaches a part back to the root.
+partListEl.addEventListener('dragover', (event) => {
+    if (dragIndex !== null) event.preventDefault();
+});
+partListEl.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (dragIndex !== null) setParent(dragIndex, null);
+    dragIndex = null;
+});
 
 const facingButtons = [...document.querySelectorAll<HTMLButtonElement>('.facing-btn')];
 for (const btn of facingButtons) {
@@ -622,7 +709,7 @@ function renderMeshList(el: HTMLElement, files: Record<string, () => Promise<str
             current.parts.push({
                 mesh: name,
                 pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1],
-                color: null, tileU: null, tileV: null, tileSize: null, repeatU: null, repeatV: null,
+                color: null, tileU: null, tileV: null, tileSize: null, repeatU: null, repeatV: null, parent: null,
             });
             selectedPart = current.parts.length - 1;
             renderParts();
@@ -648,6 +735,7 @@ function serializePart(part: EntityPart): string {
     if (part.scale) fields.push(`scale: [${part.scale.join(', ')}]`);
     if (part.color !== undefined) fields.push(`color: ${part.color}`);
     if (part.uv) fields.push(`uv: ${JSON.stringify(part.uv).replace(/"([^"]+)":/g, '$1: ').replace(/,/g, ', ').replace(/\{/g, '{ ').replace(/\}/g, ' }')}`);
+    if (part.parent !== undefined) fields.push(`parent: ${part.parent}`);
     return `            { ${fields.join(', ')} },`;
 }
 

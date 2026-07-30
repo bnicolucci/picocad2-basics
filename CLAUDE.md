@@ -68,6 +68,8 @@ guarded only by this list, so read it before rewriting a region.
 
 **Other editors**
 - Entity editor: forward is the VISIBLE nose direction, picked from 6 buttons and shown by the arrow gizmo; renaming a saved entity warns that `spawnEntity('old')` will break
+- Entity parts nest: `EntityPart.parent` is an INDEX into the same `parts` array (absent = the entity root), so a child's transform is relative to its parent and moving an assembly moves what hangs off it. A part may name a parent later in the array. A stale, self-referencing or looping index falls back to the root rather than throwing `(test)`
+- Because parents are indices, inserting or removing a part must carry every reference with it — `insertWithParents` / `removeWithParents` in `lib/entity.ts`, not ad-hoc splices. Removing a part promotes its children to where it sat `(test)`. This lives in lib precisely so it is testable; getting it wrong silently re-parents unrelated parts
 - Entity editor UV picker: the Look section draws the part's REAL texture with the tile grid over it — click or drag to pick a `uv.tile`, dimming everything but the chosen tile. The canvas and the u/v/size numbers are two views of the same values, either can drive the other. With no tile set it outlines the model's own UV footprint (`computeUvBounds`) so you can see what an override would replace. Growing the tile size shrinks the grid, so the tile is clamped back inside it rather than left sampling nothing
 - Animation editor: include/exclude state round-trips out of the generated `<mesh>_animations.ts`; preview uses the real runtime animator, not a bespoke one
 - Controls editor: movement keys are not rebindable, by design

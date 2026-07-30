@@ -19,6 +19,11 @@ export type EntityPart = {
     /** Flat (still shaded) palette colour override. */
     color?: number;
     uv?: UvTransform;
+    /** Index of the part this one hangs off, within the same `parts` array.
+        Absent means it sits on the entity root. A child's transform is relative
+        to its parent, so moving or rotating the parent carries it along. Parts
+        may reference a parent that appears later in the array. */
+    parent?: number;
 };
 
 export type EntityBlueprint = {
@@ -53,16 +58,93 @@ function modelFor(text: string): PicoCadModel {
 export function instantiateEntity(blueprint: EntityBlueprint, meshText: (mesh: string) => string | undefined): Object3D {
     const group = new Object3D();
     group.forward = blueprint.forward ?? 'z+';
-    for (const part of blueprint.parts) {
+
+    const parts = blueprint.parts;
+    const objects = parts.map((part) => {
         const text = meshText(part.mesh);
         if (text === undefined) throw new Error(`Entity part mesh "${part.mesh}" has no model text`);
         const object = modelFor(text).instantiate({ color: part.color, uv: part.uv });
         if (part.pos) object.position.set(part.pos[0], part.pos[1], part.pos[2]);
         if (part.rot) object.rotation.set(part.rot[0] * DEG, part.rot[1] * DEG, part.rot[2] * DEG);
         if (part.scale) object.scale.set(part.scale[0], part.scale[1], part.scale[2]);
-        group.add(object);
-    }
+        return object;
+    });
+
+    // Linked after building them all, so a part may name a parent that comes
+    // later in the array.
+    parts.forEach((_, index) => {
+        const parent = resolveParent(parts, index);
+        (parent === null ? group : objects[parent]).add(objects[index]);
+    });
     return group;
+}
+
+/**
+ * The parent index to actually use for a part, or null for "sits on the root".
+ * A missing, self-referencing, out-of-range or looping parent resolves to the
+ * root rather than throwing — the registry is generated, and a stale index
+ * should cost you the nesting, not the whole entity.
+ */
+export function resolveParent(parts: readonly EntityPart[], index: number): number | null {
+    const usable = (value: number | undefined, self: number): value is number =>
+        value !== undefined && Number.isInteger(value) && value >= 0 && value < parts.length && value !== self;
+
+    const parent = parts[index]?.parent;
+    if (!usable(parent, index)) return null;
+
+    // Walk up the chain; coming back to a part already seen means a loop, and
+    // dropping this link is what breaks it.
+    const seen = new Set<number>([index]);
+    let step: number | undefined = parent;
+    while (usable(step, -1)) {
+        if (seen.has(step)) return null;
+        seen.add(step);
+        step = parts[step].parent;
+    }
+    return parent;
+}
+
+// --- editing a parts list ---------------------------------------------------
+// Parents are indices, so anything that shifts them has to carry every
+// reference along. Getting this wrong silently re-parents unrelated parts, so
+// it lives here where it can be tested rather than inside the editor page.
+// Generic over "has a nullable parent index" — the editor's working parts.
+
+export type ParentIndexed = { parent: number | null };
+
+/** Insert at `at`, moving parent references the shift pushed along. */
+export function insertWithParents<T extends ParentIndexed>(list: T[], at: number, item: T): void {
+    const shift = (p: ParentIndexed): void => {
+        if (p.parent !== null && p.parent >= at) p.parent += 1;
+    };
+    for (const p of list) shift(p);
+    shift(item);
+    list.splice(at, 0, item);
+}
+
+/** Remove at `index`. Its children are promoted to where it sat rather than
+    orphaned, and references past it shift down. */
+export function removeWithParents<T extends ParentIndexed>(list: T[], index: number): void {
+    const promoted = list[index]?.parent ?? null;
+    list.splice(index, 1);
+    for (const p of list) {
+        if (p.parent === null) continue;
+        if (p.parent === index) p.parent = promoted !== null && promoted > index ? promoted - 1 : promoted;
+        else if (p.parent > index) p.parent -= 1;
+    }
+}
+
+/** Would parenting `child` to `parent` close a loop — i.e. is `parent` already
+    somewhere below `child`? */
+export function createsCycle(list: readonly ParentIndexed[], child: number, parent: number): boolean {
+    const seen = new Set<number>();
+    let step: number | null = parent;
+    while (step !== null && !seen.has(step)) {
+        if (step === child) return true;
+        seen.add(step);
+        step = list[step]?.parent ?? null;
+    }
+    return false;
 }
 
 // `forward` is the VISIBLE nose direction — what you see in picoCAD2 and the

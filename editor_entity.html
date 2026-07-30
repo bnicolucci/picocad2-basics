@@ -53,6 +53,7 @@
       }
       .part-row:hover { background: #2a2a2a; border-color: #444; }
       .part-row.active { background: #303030; border-color: #666; color: #eee; }
+      .part-row.drop-into { border-color: #6ab0ff; background: #1e2a38; }
       .part-row .part-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .part-mini {
         min-width: 22px; min-height: 20px; padding: 0 4px; border-radius: 3px;
@@ -136,6 +137,7 @@
           <div class="section">
             <div class="section-title">Parts</div>
             <div id="part-list" class="mesh-list"></div>
+            <div class="muted">Drag a part onto another to parent it · drop below to detach</div>
           </div>
 
           <div class="section">

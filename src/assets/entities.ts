@@ -8,37 +8,42 @@ import { type EntityBlueprint, instantiateEntity } from '../lib/entity';
 import type { Object3D } from '../lib/object3d';
 import mesh_capsuleText from './primitives/mesh_capsule.txt?raw';
 import mesh_cubeText from './primitives/mesh_cube.txt?raw';
-import pigText from './models/pig.txt?raw';
-import thinktankText from './models/thinktank.txt?raw';
+import mesh_cylinderText from './primitives/mesh_cylinder.txt?raw';
+// import pigText from './models/pig.txt?raw';
+// import thinktankText from './models/thinktank.txt?raw';
 
 const meshTexts: Record<string, string> = {
-    "pig": pigText,
-    "thinktank": thinktankText,
+    // "pig": pigText,
+    // "thinktank": thinktankText,
     "mesh_cube": mesh_cubeText,
     "mesh_capsule": mesh_capsuleText,
+    "mesh_cylinder": mesh_cylinderText,
 };
 
 export const entities = {
-    "pig": {
-        forward: "x-",
-        radius: 0.4,
-        parts: [
-            { mesh: "pig", scale: [0.25, 0.25, 0.25] },
-        ],
-    },
-    "thinktank": {
-        parts: [
-            { mesh: "thinktank", scale: [0.5, 0.5, 0.5] },
-        ],
-    },
+    // "pig": {
+    //     forward: "x-",
+    //     radius: 0.4,
+    //     parts: [
+    //         { mesh: "pig", scale: [0.25, 0.25, 0.25] },
+    //     ],
+    // },
+    // "thinktank": {
+    //     parts: [
+    //         { mesh: "thinktank", scale: [0.5, 0.5, 0.5] },
+    //     ],
+    // },
     "PrimitiveThing": {
         forward: "x-",
         radius: 0.5,
         tags: ["player"],
         parts: [
             { mesh: "mesh_cube", pos: [0, 0.5, 0], uv: { tile: { u: 1, v: 2 } } },
-            { mesh: "mesh_capsule", pos: [0, -0.6, 0], color: 2 },
-            { mesh: "mesh_capsule", pos: [1.2, 0.5, 0], rot: [0, 0, 90], scale: [1.25, 1.1, 0.9], uv: { tile: { u: 2, v: 3, size: 8 } } },
+            { mesh: "mesh_capsule", pos: [0, -0.6, 0], uv: { tile: { u: 1, v: 4 } } },
+            { mesh: "mesh_capsule", pos: [1.2, 0.5, 0], rot: [0, 0, 90], scale: [1.25, 1.1, 0.9], uv: { tile: { u: 1, v: 4, size: 32 }, repeatU: 4, repeatV: 4 } },
+            { mesh: "mesh_cube", pos: [0, 0.5, 0], scale: [1, 0.25, 4] },
+            { mesh: "mesh_cylinder", pos: [0, 0.5, 1.8], rot: [0, 0, 90], scale: [0.65, 1.15, 1], uv: { tile: { u: 2, v: 2 } } },
+            { mesh: "mesh_cylinder", pos: [0, 0.5, -1.8], rot: [0, 0, 90], scale: [0.65, 1.15, 1], uv: { tile: { u: 2, v: 4 } } },
         ],
     },
 } as const satisfies Record<string, EntityBlueprint>;
