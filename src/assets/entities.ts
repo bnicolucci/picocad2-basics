@@ -6,12 +6,16 @@
 // imported, so everything else tree-shakes out of the build.
 import { type EntityBlueprint, instantiateEntity } from '../lib/entity';
 import type { Object3D } from '../lib/object3d';
+import mesh_capsuleText from './primitives/mesh_capsule.txt?raw';
+import mesh_cubeText from './primitives/mesh_cube.txt?raw';
 import pigText from './models/pig.txt?raw';
 import thinktankText from './models/thinktank.txt?raw';
 
 const meshTexts: Record<string, string> = {
     "pig": pigText,
     "thinktank": thinktankText,
+    "mesh_cube": mesh_cubeText,
+    "mesh_capsule": mesh_capsuleText,
 };
 
 export const entities = {
@@ -23,9 +27,18 @@ export const entities = {
         ],
     },
     "thinktank": {
-        tags: ["player"],
         parts: [
             { mesh: "thinktank", scale: [0.5, 0.5, 0.5] },
+        ],
+    },
+    "PrimitiveThing": {
+        forward: "x-",
+        radius: 0.5,
+        tags: ["player"],
+        parts: [
+            { mesh: "mesh_cube", pos: [0, 0.5, 0], uv: { tile: { u: 1, v: 2 } } },
+            { mesh: "mesh_capsule", pos: [0, -0.6, 0], color: 2 },
+            { mesh: "mesh_capsule", pos: [1.2, 0.5, 0], rot: [0, 0, 90], scale: [1.25, 1.1, 0.9], uv: { tile: { u: 2, v: 3, size: 8 } } },
         ],
     },
 } as const satisfies Record<string, EntityBlueprint>;
