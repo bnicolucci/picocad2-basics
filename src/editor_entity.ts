@@ -14,14 +14,14 @@ import cubeText from './assets/primitives/mesh_cube.txt?raw';
 import { restoreSavedMessage, saveGenerated, statusReporter } from './lib/editorPage';
 import { createEditorViewport } from './lib/editorViewport';
 import type { EntityBlueprint, EntityPart } from './lib/entity';
-import { createsCycle, insertWithParents, instantiateEntity, removeWithParents, resolveParent } from './lib/entity';
+import { createsCycle, type EntityPalette, insertWithParents, instantiateEntity, removeWithParents, resolveParent } from './lib/entity';
 import { textureRgba, tileAtPixel, tileGrid } from './lib/editorTexture';
 import { PicoCad2Loader, type PicoCadModel } from './lib/loader';
 import { type Forward, Object3D } from './lib/object3d';
 import { modelBaseName } from './lib/picocad2_animation_extract';
 import { picoCadPalettes, type PicoCadPaletteTheme } from './assets/palettes/picocad_palettes';
-import type { BuiltTexture } from './lib/picocad2';
-import { computeUvBounds, type ModelData, type UvTransform } from './lib/renderer';
+import { type BuiltTexture, repaletteTexture } from './lib/picocad2';
+import { computeUvBounds, type UvTransform } from './lib/renderer';
 
 const PRIMITIVE_FILES = import.meta.glob(
     ['./assets/primitives/*.txt', '!./assets/primitives/*-anim-*.txt', '!./assets/primitives/*_anim_*.txt'],
@@ -67,6 +67,8 @@ type WorkingEntity = {
     forward: Forward;
     radius: number | null;
     tags: string[];
+    /** Palette id from picoCadPalettes, or null for each model's own colours. */
+    palette: string | null;
     parts: WorkingPart[];
 };
 
@@ -109,6 +111,7 @@ function toBlueprint(entity: WorkingEntity): EntityBlueprint {
         ...(entity.forward !== 'z+' ? { forward: entity.forward } : {}),
         ...(entity.radius !== null ? { radius: entity.radius } : {}),
         ...(entity.tags.length > 0 ? { tags: entity.tags } : {}),
+        ...(entity.palette ? { palette: entity.palette } : {}),
         parts: entity.parts.map(toEntityPart),
     };
 }
@@ -119,6 +122,7 @@ const list: WorkingEntity[] = Object.entries(savedEntities as Record<string, Ent
     forward: bp.forward ?? 'z+',
     radius: bp.radius ?? null,
     tags: [...(bp.tags ?? [])],
+    palette: bp.palette ?? null,
     parts: bp.parts.map(toWorkingPart),
 }));
 
@@ -240,8 +244,7 @@ async function rebuildPreview(frame = false): Promise<void> {
     drawUv();
 
     try {
-        entityGroup = instantiateEntity(toBlueprint(entity), (mesh) => textCache.get(mesh));
-        applyPalette(entityGroup);
+        entityGroup = instantiateEntity(toBlueprint(entity), (mesh) => textCache.get(mesh), currentPalette());
     } catch (error) {
         setStatus(`Preview failed: ${error instanceof Error ? error.message : error}`, true);
         return;
@@ -388,55 +391,21 @@ function renderColorSwatches(): void {
 // and the UV picker together, because all three read the same texture.
 
 const paletteSelect = $<HTMLSelectElement>('palette-select');
-let palette: PicoCadPaletteTheme | null = null;
 
-/** The same texture under a different palette. `transparentIndex` stays the
-    model's — it says which texels were authored to vanish, which is a property
-    of the texture, not of the colours. */
-function repalette(texture: BuiltTexture, theme: PicoCadPaletteTheme): BuiltTexture {
-    const palettePixels = new Uint8Array(16 * 3 * 4);
-    for (let c = 0; c < 16; c++) {
-        const rows = [theme.colors[c], theme.colors[theme.shadePal1[c] ?? c], theme.colors[theme.shadePal2[c] ?? c]];
-        for (let row = 0; row < 3; row++) {
-            const o = (row * 16 + c) * 4;
-            const rgb = rows[row] ?? rows[0] ?? [0, 0, 0];
-            palettePixels[o] = rgb[0];
-            palettePixels[o + 1] = rgb[1];
-            palettePixels[o + 2] = rgb[2];
-            palettePixels[o + 3] = 255;
-        }
-    }
-    return { ...texture, palettePixels };
+/** The palette the entity under edit is in, or null for each model's own
+    colours. Lives on the entity, so it saves and reloads with it. */
+export function currentPalette(): EntityPalette | null {
+    const id = current?.palette;
+    return id ? (picoCadPalettes as Record<string, PicoCadPaletteTheme>)[id] ?? null : null;
 }
 
-// One re-paletted upload per (model, palette), so parts sharing a mesh still
-// share a single GPU upload instead of one each.
-const repalettedModels = new Map<string, Map<ModelData, ModelData>>();
-
-function repalettedModel(model: ModelData, theme: PicoCadPaletteTheme): ModelData {
-    let byModel = repalettedModels.get(theme.id);
-    if (!byModel) repalettedModels.set(theme.id, (byModel = new Map()));
-    let swapped = byModel.get(model);
-    if (!swapped) byModel.set(model, (swapped = { meshes: model.meshes, texture: repalette(model.texture, theme) }));
-    return swapped;
-}
-
-/** What a part's texture looks like right now — its model's own, or the
-    override. Drives the swatches and the UV canvas. */
+/** What a part's texture looks like right now. Drives the swatches and the UV
+    canvas; the preview goes through instantiateEntity, which does its own. */
 function effectiveTexture(mesh: string): BuiltTexture | null {
     const model = modelFor(mesh);
     if (!model) return null;
-    return palette ? repalette(model.texture, palette) : model.texture;
-}
-
-/** Point every model root in a built entity at the re-paletted upload. */
-function applyPalette(root: Object3D): void {
-    if (!palette) return;
-    const walk = (object: Object3D): void => {
-        if (object.model) object.model.model = repalettedModel(object.model.model, palette!);
-        for (const child of object.children) walk(child);
-    };
-    walk(root);
+    const palette = currentPalette();
+    return palette ? repaletteTexture(model.texture, palette) : model.texture;
 }
 
 const CURRENT_MODEL_PALETTE = '';
@@ -451,7 +420,8 @@ for (const [value, label] of [
 }
 
 paletteSelect.addEventListener('change', () => {
-    palette = picoCadPalettes[paletteSelect.value as keyof typeof picoCadPalettes] ?? null;
+    if (!current) return;
+    current.palette = paletteSelect.value || null;
     renderColorSwatches();
     drawUv();
     void rebuildPreview();
@@ -771,6 +741,8 @@ function renderEntityFields(): void {
     radiusInput.disabled = !entity;
     tagsInput.value = entity ? entity.tags.join(', ') : '';
     tagsInput.disabled = !entity;
+    paletteSelect.value = entity?.palette ?? CURRENT_MODEL_PALETTE;
+    paletteSelect.disabled = !entity;
     for (const btn of facingButtons) {
         btn.classList.toggle('active', !!entity && btn.dataset.forward === entity.forward);
         btn.disabled = !entity;
@@ -814,7 +786,7 @@ function freshName(base: string): string {
 }
 
 $('new-btn').addEventListener('click', () => {
-    const entity: WorkingEntity = { name: freshName('entity'), savedName: null, forward: 'z+', radius: null, tags: [], parts: [] };
+    const entity: WorkingEntity = { name: freshName('entity'), savedName: null, forward: 'z+', radius: null, tags: [], palette: null, parts: [] };
     list.push(entity);
     switchTo(entity);
     setStatus(`New entity "${entity.name}" — add parts, then rename it and Save.`);
@@ -899,12 +871,15 @@ function generateEntitiesModule(entities: WorkingEntity[]): string {
         .map((mesh) => `import ${meshIdent(mesh)} from '${meshSources.get(mesh)!.importPath}?raw';`)
         .sort();
 
+    const usesPalettes = entities.some((entity) => entity.palette);
+
     const entityEntries = entities.map((entity) => {
         const bp = toBlueprint(entity);
         const lines = [`    ${JSON.stringify(entity.name)}: {`];
         if (bp.forward) lines.push(`        forward: ${JSON.stringify(bp.forward)},`);
         if (bp.radius !== undefined) lines.push(`        radius: ${bp.radius},`);
         if (bp.tags) lines.push(`        tags: [${bp.tags.map((t) => JSON.stringify(t)).join(', ')}],`);
+        if (bp.palette) lines.push(`        palette: ${JSON.stringify(bp.palette)},`);
         lines.push('        parts: [');
         for (const part of bp.parts) lines.push(serializePart(part));
         lines.push('        ],');
@@ -919,8 +894,9 @@ function generateEntitiesModule(entities: WorkingEntity[]): string {
         "// radius, and tags. Entity names are typed: spawnEntity('pig') autocompletes",
         '// and a stale name is a compile error. Only meshes entities actually use are',
         '// imported, so everything else tree-shakes out of the build.',
-        "import { type EntityBlueprint, instantiateEntity } from '../lib/entity';",
+        "import { type EntityBlueprint, type EntityPalette, instantiateEntity } from '../lib/entity';",
         "import type { Object3D } from '../lib/object3d';",
+        ...(usesPalettes ? ["import { picoCadPalettes } from './palettes/picocad_palettes';"] : []),
         ...imports,
         '',
         'const meshTexts: Record<string, string> = {',
@@ -933,7 +909,19 @@ function generateEntitiesModule(entities: WorkingEntity[]): string {
         '',
         'export type EntityName = keyof typeof entities;',
         '',
-        'export const spawnEntity = (name: EntityName): Object3D => instantiateEntity(entities[name], (mesh) => meshTexts[mesh]);',
+        ...(usesPalettes
+            ? [
+                  '// An entity may name a palette to recolour every part with. An id that no',
+                  '// longer exists just means the models keep their own colours.',
+                  'const paletteFor = (name: EntityName): EntityPalette | null => {',
+                  "    const id = (entities[name] as { palette?: string }).palette;",
+                  '    return id ? (picoCadPalettes as Record<string, EntityPalette>)[id] ?? null : null;',
+                  '};',
+                  '',
+                  'export const spawnEntity = (name: EntityName): Object3D =>',
+                  '    instantiateEntity(entities[name], (mesh) => meshTexts[mesh], paletteFor(name));',
+              ]
+            : ['export const spawnEntity = (name: EntityName): Object3D => instantiateEntity(entities[name], (mesh) => meshTexts[mesh]);']),
         '',
     ].join('\n');
 }

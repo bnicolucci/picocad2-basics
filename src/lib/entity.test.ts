@@ -163,6 +163,43 @@ describe('instantiateEntity', () => {
         expect(partsUnder(parent)[0].parent).toBe(parent);
     });
 
+    // A palette recolours every part. The upload cache must survive it, or an
+    // entity that names a palette quietly costs one draw call per part.
+    describe('palette', () => {
+        const palette = {
+            id: 'test',
+            colors: Array.from({ length: 16 }, (_, i) => [i * 16, 0, 255 - i * 16] as const),
+            shadePal1: Array.from({ length: 16 }, () => 0),
+            shadePal2: Array.from({ length: 16 }, () => 0),
+        };
+        const modelOf = (group: Object3D, i: number): unknown => meshOf(group.children[i]).model!.model;
+
+        test('recolours every part', () => {
+            const plain = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText);
+            const themed = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText, palette);
+            expect(modelOf(themed, 0)).not.toBe(modelOf(plain, 0));
+            const px = (meshOf(themed.children[0]).model!.model as { texture: { palettePixels: Uint8Array } }).texture.palettePixels;
+            expect([px[0], px[1], px[2]]).toEqual([0, 0, 255]); // colour 0 of the test palette
+        });
+
+        test('parts sharing a mesh still share ONE recoloured upload', () => {
+            const group = instantiateEntity({ parts: [{ mesh: 'a' }, { mesh: 'a' }] }, meshText, palette);
+            expect(modelOf(group, 0)).toBe(modelOf(group, 1));
+        });
+
+        test('the same palette twice reuses the upload rather than rebuilding', () => {
+            const a = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText, palette);
+            const b = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText, palette);
+            expect(modelOf(a, 0)).toBe(modelOf(b, 0));
+        });
+
+        test('no palette leaves the model exactly as loaded', () => {
+            const a = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText);
+            const b = instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText, null);
+            expect(modelOf(a, 0)).toBe(modelOf(b, 0));
+        });
+    });
+
     test('defaults to facing z+', () => {
         expect(instantiateEntity({ parts: [{ mesh: 'a' }] }, meshText).forward).toBe('z+');
     });

@@ -1,6 +1,7 @@
+import { type PaletteColors, repaletteTexture } from './picocad2';
 import { PicoCad2Loader, type PicoCadModel } from './loader';
 import { type Forward, Object3D } from './object3d';
-import type { UvTransform } from './renderer';
+import type { ModelData, UvTransform } from './renderer';
 
 // Entities: reusable game things composed of PARTS — custom models or the
 // stock primitives — plus the gameplay facts the engine needs (rest facing,
@@ -26,7 +27,13 @@ export type EntityPart = {
     parent?: number;
 };
 
+/** A palette an entity is rendered in, plus a stable id to cache uploads by. */
+export type EntityPalette = PaletteColors & { id: string };
+
 export type EntityBlueprint = {
+    /** Palette id to recolour every part with — a key of the palette registry
+        the generated module passes in. Absent = each model's own colours. */
+    palette?: string;
     /** The visible nose direction (as seen in picoCAD2). Default 'z+'. */
     forward?: Forward;
     /** Circle collider radius; absent = not solid. */
@@ -40,6 +47,19 @@ const DEG = Math.PI / 180;
 // One parsed model per mesh text, shared by every entity that uses it.
 const modelCache = new Map<string, PicoCadModel>();
 const loader = new PicoCad2Loader();
+
+// One recoloured upload per (model, palette). Without this, every part would
+// build its own copy of the same geometry and the batching guarantee would be
+// lost the moment an entity used a palette.
+const repalettedUploads = new Map<string, WeakMap<ModelData, ModelData>>();
+
+function repalettedUpload(model: ModelData, palette: EntityPalette): ModelData {
+    let byModel = repalettedUploads.get(palette.id);
+    if (!byModel) repalettedUploads.set(palette.id, (byModel = new WeakMap()));
+    let swapped = byModel.get(model);
+    if (!swapped) byModel.set(model, (swapped = { meshes: model.meshes, texture: repaletteTexture(model.texture, palette) }));
+    return swapped;
+}
 
 function modelFor(text: string): PicoCadModel {
     let model = modelCache.get(text);
@@ -55,7 +75,11 @@ function modelFor(text: string): PicoCadModel {
  * name to its model text — the generated registry passes its own imports, so
  * only meshes entities actually use are bundled.
  */
-export function instantiateEntity(blueprint: EntityBlueprint, meshText: (mesh: string) => string | undefined): Object3D {
+export function instantiateEntity(
+    blueprint: EntityBlueprint,
+    meshText: (mesh: string) => string | undefined,
+    palette?: EntityPalette | null,
+): Object3D {
     const group = new Object3D();
     group.forward = blueprint.forward ?? 'z+';
 
@@ -70,6 +94,7 @@ export function instantiateEntity(blueprint: EntityBlueprint, meshText: (mesh: s
         const text = meshText(part.mesh);
         if (text === undefined) throw new Error(`Entity part mesh "${part.mesh}" has no model text`);
         const mesh = modelFor(text).instantiate({ color: part.color, uv: part.uv });
+        if (palette && mesh.model) mesh.model.model = repalettedUpload(mesh.model.model, palette);
         if (part.scale) mesh.scale.set(part.scale[0], part.scale[1], part.scale[2]);
 
         const node = new Object3D();

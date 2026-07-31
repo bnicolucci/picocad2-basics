@@ -148,6 +148,37 @@ export function buildTexture(data: PicoCad2Data): BuiltTexture {
     return { width, height, indexPixels, palettePixels, transparentIndex };
 }
 
+/** What recolouring needs from a palette: 16 RGB triples plus the two shade
+    tables, which index back into those same colours. */
+export type PaletteColors = {
+    colors: readonly (readonly [number, number, number])[];
+    shadePal1: readonly number[];
+    shadePal2: readonly number[];
+};
+
+/**
+ * The same texture under a different palette. A picoCAD texture is INDEXED —
+ * the pixels are palette indices — so recolouring rebuilds only the 16x3 colour
+ * map and leaves the authored pixels alone. `transparentIndex` stays too: it
+ * says which texels were authored to vanish, which is a property of the
+ * texture, not of the colours.
+ */
+export function repaletteTexture(texture: BuiltTexture, palette: PaletteColors): BuiltTexture {
+    const palettePixels = new Uint8Array(16 * 3 * 4);
+    for (let c = 0; c < 16; c++) {
+        const base = palette.colors[c] ?? [0, 0, 0];
+        const rows = [base, palette.colors[palette.shadePal1[c] ?? c] ?? base, palette.colors[palette.shadePal2[c] ?? c] ?? base];
+        for (let row = 0; row < 3; row++) {
+            const o = (row * 16 + c) * 4;
+            palettePixels[o + 0] = rows[row][0];
+            palettePixels[o + 1] = rows[row][1];
+            palettePixels[o + 2] = rows[row][2];
+            palettePixels[o + 3] = 255;
+        }
+    }
+    return { ...texture, palettePixels };
+}
+
 export type GraphBounds = {
     centerX: number;
     centerY: number;
