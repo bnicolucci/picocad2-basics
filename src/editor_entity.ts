@@ -19,9 +19,9 @@ import { textureRgba, tileAtPixel, tileGrid } from './lib/editorTexture';
 import { PicoCad2Loader, type PicoCadModel } from './lib/loader';
 import { type Forward, Object3D } from './lib/object3d';
 import { modelBaseName } from './lib/picocad2_animation_extract';
-import { picoCadPalettes } from './assets/palettes/picocad_palettes';
+import { picoCadPalettes, type PicoCadPaletteTheme } from './assets/palettes/picocad_palettes';
 import type { BuiltTexture } from './lib/picocad2';
-import { computeUvBounds, type UvTransform } from './lib/renderer';
+import { computeUvBounds, type ModelData, type UvTransform } from './lib/renderer';
 
 const PRIMITIVE_FILES = import.meta.glob(
     ['./assets/primitives/*.txt', '!./assets/primitives/*-anim-*.txt', '!./assets/primitives/*_anim_*.txt'],
@@ -241,6 +241,7 @@ async function rebuildPreview(frame = false): Promise<void> {
 
     try {
         entityGroup = instantiateEntity(toBlueprint(entity), (mesh) => textCache.get(mesh));
+        applyPalette(entityGroup);
     } catch (error) {
         setStatus(`Preview failed: ${error instanceof Error ? error.message : error}`, true);
         return;
@@ -357,8 +358,7 @@ function renderColorSwatches(): void {
     colorSwatchesEl.replaceChildren();
     const part = current?.parts[selectedPart] ?? null;
     if (!part) return;
-    const texture = modelFor(part.mesh)?.texture ?? gizmoModel.texture;
-    const colors = paletteCss(texture);
+    const colors = paletteCss(effectiveTexture(part.mesh) ?? gizmoModel.texture);
 
     const swatch = (label: string, title: string, value: number | null, css?: string): HTMLButtonElement => {
         const button = document.createElement('button');
@@ -381,46 +381,81 @@ function renderColorSwatches(): void {
     });
 }
 
-// --- entity palette -----------------------------------------------------
-// The primitives are authored against one 16-colour palette; this shows it, and
-// lets you hold any of the other picoCAD palettes up against it.
+// --- palette ------------------------------------------------------------
+// A model's texture is palette-INDEXED: the pixels are indices and the palette
+// maps them to colours. So swapping palettes is swapping that map, leaving the
+// texture untouched — which recolours the preview, the solid-colour swatches
+// and the UV picker together, because all three read the same texture.
 
-const basePaletteEl = $('base-palette');
 const paletteSelect = $<HTMLSelectElement>('palette-select');
-const palettePreviewEl = $('palette-preview');
-const paletteNoteEl = $('palette-note');
+let palette: PicoCadPaletteTheme | null = null;
 
-function fillSwatchRow(el: HTMLElement, colors: string[], titles: (i: number) => string): void {
-    el.replaceChildren();
-    el.classList.add('readonly', 'palette');
-    colors.forEach((css, index) => {
-        const chip = document.createElement('div');
-        chip.className = 'color-swatch';
-        chip.style.background = css;
-        chip.title = titles(index);
-        el.appendChild(chip);
-    });
+/** The same texture under a different palette. `transparentIndex` stays the
+    model's — it says which texels were authored to vanish, which is a property
+    of the texture, not of the colours. */
+function repalette(texture: BuiltTexture, theme: PicoCadPaletteTheme): BuiltTexture {
+    const palettePixels = new Uint8Array(16 * 3 * 4);
+    for (let c = 0; c < 16; c++) {
+        const rows = [theme.colors[c], theme.colors[theme.shadePal1[c] ?? c], theme.colors[theme.shadePal2[c] ?? c]];
+        for (let row = 0; row < 3; row++) {
+            const o = (row * 16 + c) * 4;
+            const rgb = rows[row] ?? rows[0] ?? [0, 0, 0];
+            palettePixels[o] = rgb[0];
+            palettePixels[o + 1] = rgb[1];
+            palettePixels[o + 2] = rgb[2];
+            palettePixels[o + 3] = 255;
+        }
+    }
+    return { ...texture, palettePixels };
 }
 
-function renderPalettes(): void {
-    const base = paletteCss(gizmoModel.texture);
-    fillSwatchRow(basePaletteEl, base, (i) => `${i}: ${base[i]}`);
+// One re-paletted upload per (model, palette), so parts sharing a mesh still
+// share a single GPU upload instead of one each.
+const repalettedModels = new Map<string, Map<ModelData, ModelData>>();
 
-    const chosen = picoCadPalettes[paletteSelect.value as keyof typeof picoCadPalettes];
-    if (!chosen) return;
-    const colors = chosen.colors.map(([r, g, b]) => `rgb(${r}, ${g}, ${b})`);
-    fillSwatchRow(palettePreviewEl, colors, (i) => `${i}: ${colors[i]}`);
-    paletteNoteEl.textContent = `${chosen.name} — ${chosen.author}. Reference only: a part's colours come from its own model file.`;
+function repalettedModel(model: ModelData, theme: PicoCadPaletteTheme): ModelData {
+    let byModel = repalettedModels.get(theme.id);
+    if (!byModel) repalettedModels.set(theme.id, (byModel = new Map()));
+    let swapped = byModel.get(model);
+    if (!swapped) byModel.set(model, (swapped = { meshes: model.meshes, texture: repalette(model.texture, theme) }));
+    return swapped;
 }
 
-for (const [id, palette] of Object.entries(picoCadPalettes)) {
+/** What a part's texture looks like right now — its model's own, or the
+    override. Drives the swatches and the UV canvas. */
+function effectiveTexture(mesh: string): BuiltTexture | null {
+    const model = modelFor(mesh);
+    if (!model) return null;
+    return palette ? repalette(model.texture, palette) : model.texture;
+}
+
+/** Point every model root in a built entity at the re-paletted upload. */
+function applyPalette(root: Object3D): void {
+    if (!palette) return;
+    const walk = (object: Object3D): void => {
+        if (object.model) object.model.model = repalettedModel(object.model.model, palette!);
+        for (const child of object.children) walk(child);
+    };
+    walk(root);
+}
+
+const CURRENT_MODEL_PALETTE = '';
+for (const [value, label] of [
+    [CURRENT_MODEL_PALETTE, 'Current Model Palette'],
+    ...Object.entries(picoCadPalettes).map(([id, p]) => [id, p.name] as const),
+] as const) {
     const option = document.createElement('option');
-    option.value = id;
-    option.textContent = palette.name;
+    option.value = value;
+    option.textContent = label;
     paletteSelect.appendChild(option);
 }
-paletteSelect.addEventListener('change', renderPalettes);
-renderPalettes();
+
+paletteSelect.addEventListener('change', () => {
+    palette = picoCadPalettes[paletteSelect.value as keyof typeof picoCadPalettes] ?? null;
+    renderColorSwatches();
+    drawUv();
+    void rebuildPreview();
+});
 
 // --- UV picker ----------------------------------------------------------
 // The part's texture, drawn at native size and CSS-scaled up, with the tile
@@ -455,8 +490,9 @@ function modelFor(mesh: string): PicoCadModel | null {
 function drawUv(): void {
     const part = current?.parts[selectedPart] ?? null;
     const model = part ? modelFor(part.mesh) : null;
+    const tex = part ? effectiveTexture(part.mesh) : null;
 
-    if (!part || !model) {
+    if (!part || !model || !tex) {
         uvCtx.clearRect(0, 0, uvCanvas.width, uvCanvas.height);
         uvCanvas.classList.add('disabled');
         uvHint.textContent = part ? 'Loading texture…' : 'Select a part to pick its UV.';
@@ -465,7 +501,6 @@ function drawUv(): void {
     }
     uvCanvas.classList.remove('disabled');
 
-    const tex = model.texture;
     if (uvCanvas.width !== tex.width || uvCanvas.height !== tex.height) {
         uvCanvas.width = tex.width;
         uvCanvas.height = tex.height;
